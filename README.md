@@ -27,7 +27,7 @@ QuickDrawGame/
 ## 🎬 Demo Video
 
 <div align="center">
-  <img src="./demo/quickdraw-demo.gif" alt="QuickDraw Game Demo" width="600"/>
+  <img src="https://github.com/Jitenrai21/QuickDrawGame/blob/main/demo/quickdraw-demo.gif" alt="QuickDraw Game Demo" width="600"/>
   <p><em>🎮 Watch the AI recognize drawings in real-time!</em></p>
 </div>
 
