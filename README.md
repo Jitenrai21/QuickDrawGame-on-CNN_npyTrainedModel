@@ -6,13 +6,13 @@ A full-stack AI-powered drawing game where users draw objects and a trained CNN 
 
 ```
 QuickDrawGame/
-├── 🎨 frontend/           # Vanilla JS frontend with canvas drawing
-├── ⚙️ backend/            # FastAPI backend with ML model integration
-├── 🤖 model_training/     # Jupyter notebook & trained models
-├── 📋 requirements.txt    # Python dependencies
-├── ✨ features_onTrad     # Feature data files
-├── 📁 labels_onTrad       # Label data files
-└── 📖 Project_Structure   # Project structure documentation
+├── frontend/           # Vanilla JS frontend with canvas drawing
+├── backend/            # FastAPI backend with ML model integration
+├── model_training/     # Jupyter notebook & trained models
+├── requirements.txt    # Python dependencies
+├── features_onTrad     # Feature data files
+├── labels_onTrad       # Label data files
+└── Project_Structure   # Project structure documentation
 ```
 
 ## Features
@@ -209,7 +209,7 @@ The game is fully responsive and supports:
 - [ ] Model ensemble and improved accuracy
 - [ ] Mobile app development
 
-## 📚 Training Details
+## Training Details
 
 The model training is handled in `confidence_calibrated_training.ipynb` which includes:
 - Data preprocessing and augmentation
@@ -218,7 +218,7 @@ The model training is handled in `confidence_calibrated_training.ipynb` which in
 - Model evaluation and comparison
 - Multiple model variants in `model_trad/` directory
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
