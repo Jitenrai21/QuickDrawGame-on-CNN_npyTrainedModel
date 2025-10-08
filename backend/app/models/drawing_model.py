@@ -7,7 +7,6 @@ import io
 import base64
 import cv2
 
-# Get the absolute path to the improved 64x64 model file (HYBRID APPROACH)
 # Navigate from backend/app/models/ to project root, then to models/
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 MODEL_PATH = os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_CALIBRATED_FINAL_64x64.keras')
@@ -15,9 +14,6 @@ MODEL_PATH = os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDr
 # Load the improved 64x64 QuickDraw model for HYBRID approach
 try:
     model = tf.keras.models.load_model(MODEL_PATH)
-    print(f"✅ Improved 64x64 HYBRID model loaded successfully from {MODEL_PATH}")
-    print(f"📊 Model input shape: {model.input_shape}")
-    print(f"🎯 Expected input: (batch_size, 64, 64, 1)")
 except Exception as e:
     print(f"❌ Error loading 64x64 HYBRID model: {e}")
     # Fallback to previous models (64x64 compatible)
@@ -33,14 +29,13 @@ except Exception as e:
     for fallback_path in fallback_paths:
         try:
             model = tf.keras.models.load_model(fallback_path)
-            print(f"✅ Fallback model loaded from {fallback_path}")
-            print(f"⚠️  Using fallback model - performance may be reduced")
+            print(f"Using fallback model - performance may be reduced")
             break
         except Exception as e2:
             continue
     
     if model is None:
-        print(f"❌ Could not load any model. Please ensure model files exist.")
+        print(f"Could not load any model. Please ensure model files exist.")
 
 # Class labels for QuickDraw model (15 classes) - Updated to match notebook training
 CLASS_LABELS = [
@@ -91,25 +86,25 @@ def predict_drawing(drawing_data):
             return {"error": "Failed to process drawing", "prediction": "unknown", "confidence": 0.0}
         
         # Log image shape for debugging
-        print(f"🔍 Processed image shape: {processed_image.shape}")
+        print(f"Processed image shape: {processed_image.shape}")
         
         # CRITICAL: Check model input shape and ensure compatibility
         expected_shape = model.input_shape[1:3]  # (height, width)
         actual_shape = processed_image.shape[1:3]  # (height, width)
         
-        print(f"🎯 Model expects: {expected_shape}, Got: {actual_shape}")
+        print(f"Model expects: {expected_shape}, Got: {actual_shape}")
         
         if actual_shape != expected_shape:
-            print(f"⚠️  Shape mismatch! Resizing {actual_shape} to {expected_shape}")
+            print(f"Shape mismatch! Resizing {actual_shape} to {expected_shape}")
             from PIL import Image
             # Convert back to PIL for resizing (keeping normalized values)
             img_pil = Image.fromarray((processed_image[0, :, :, 0] * 255).astype(np.uint8))
             img_resized = img_pil.resize(expected_shape[::-1], Image.Resampling.LANCZOS)  # PIL uses (width, height)
             processed_image = np.array(img_resized, dtype=np.float32) / 255.0  # Normalize for 64x64 model
             processed_image = processed_image.reshape(1, expected_shape[0], expected_shape[1], 1)
-            print(f"🔄 Resized to {processed_image.shape} for model compatibility (normalized values)")
+            print(f"Resized to {processed_image.shape} for model compatibility (normalized values)")
         else:
-            print(f"✅ Perfect shape match! Using 64x64 directly with HYBRID preprocessing!")
+            print(f"Perfect shape match! Using 64x64 directly with HYBRID preprocessing!")
         
         # Make prediction
         prediction_probs = model.predict(processed_image, verbose=0)
@@ -123,21 +118,12 @@ def predict_drawing(drawing_data):
         for idx in top_indices:
             top_predictions[CLASS_LABELS[idx]] = float(prediction_probs[0][idx])
         
-        # Log prediction details for debugging
-        print(f"🤖 HYBRID 64x64 Model prediction details:")
-        print(f"   Canvas: 400x400 (square) → 64x64 via HYBRID approach")
-        print(f"   Drawing points: {len(drawing_data)}")
-        print(f"   Prediction: {predicted_label} ({confidence*100:.1f}%)")
-        print(f"   Top 3: {list(top_predictions.keys())[:3]}")
-        print(f"   🚀 HYBRID: OpenCV preprocessing + 64x64 resolution")
-        print(f"   🔧 TECHNIQUES: medianBlur + GaussianBlur + OTSU + contour crop")
-        
         if confidence > 0.5:
-            print(f"   🎉 EXCELLENT confidence! Hybrid approach working perfectly.")
+            print(f" EXCELLENT confidence! Hybrid approach working perfectly.")
         elif confidence > 0.3:
-            print(f"   ✅ Good confidence improvement from hybrid preprocessing.")
+            print(f" Good confidence improvement from hybrid preprocessing.")
         else:
-            print(f"   ⚠️ Still optimizing - hybrid approach may need fine-tuning.")
+            print(f" Still optimizing - hybrid approach may need fine-tuning.")
         
         return {
             "prediction": predicted_label,
@@ -157,7 +143,7 @@ def predict_drawing(drawing_data):
         }
         
     except Exception as e:
-        print(f"❌ Error in prediction: {e}")
+        print(f"Error in prediction: {e}")
         return {"error": str(e), "prediction": "unknown", "confidence": 0.0}
 
 def preprocess_drawing_to_image(drawing_data, canvas_size=(400, 400), target_size=(64, 64)):

@@ -1,0 +1,26 @@
+# Django QuickDraw Game - Requirements
+# Core Django Framework
+django>=4.2.0
+djangorestframework>=3.14.0
+django-cors-headers>=4.0.0
+
+# Machine Learning & Image Processing
+tensorflow>=2.10.0
+numpy>=1.21.0
+opencv-python==4.8.1.78
+pillow>=9.0.0
+scikit-learn>=1.3.0
+
+# Data Processing (keeping from original)
+pandas>=1.5.0
+ndjson==0.3.1
+seaborn>=0.12.0
+
+# Development & Production
+gunicorn>=21.0.0        # For production deployment
+whitenoise>=6.5.0       # For static file serving
+python-decouple>=3.8    # For environment variables
+
+# Optional: Database (if you want to add persistence later)
+# psycopg2-binary>=2.9.0  # For PostgreSQL
+# django-extensions>=3.2.0  # For enhanced management commands
