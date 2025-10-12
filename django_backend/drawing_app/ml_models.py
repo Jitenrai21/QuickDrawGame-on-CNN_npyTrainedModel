@@ -15,14 +15,24 @@ from django.conf import settings
 
 
 # Get the absolute path to the improved 64x64 model file (HYBRID APPROACH)
-# Navigate from django_backend to project root, then to models/
+# Navigate from django_backend/drawing_app to project root, then to models/
 def get_project_root():
     """Get the project root directory (parent of django_backend)"""
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Current file is in: QuickDrawGame/django_backend/drawing_app/ml_models.py
+    # Project root is: QuickDrawGame/
+    current_file = os.path.abspath(__file__)
+    # Go up 3 levels: ml_models.py -> drawing_app -> django_backend -> QuickDrawGame
+    return os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 
 
 PROJECT_ROOT = get_project_root()
 MODEL_PATH = os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_CALIBRATED_FINAL_64x64.keras')
+
+# Debug: Print the calculated paths
+# print(f"🔍 DEBUG: Current file: {__file__}")
+# print(f"🔍 DEBUG: Project root: {PROJECT_ROOT}")
+# print(f"🔍 DEBUG: Model path: {MODEL_PATH}")
+# print(f"🔍 DEBUG: Model exists: {os.path.exists(MODEL_PATH)}")
 
 # Global model variable
 model = None
@@ -38,34 +48,51 @@ def load_model():
     try:
         model = tf.keras.models.load_model(MODEL_PATH)
         print(f"✅ Improved 64x64 HYBRID model loaded successfully from {MODEL_PATH}")
-        print(f"📊 Model input shape: {model.input_shape}")
-        print(f"🎯 Expected input: (batch_size, 64, 64, 1)")
+        # print(f"📊 Model input shape: {model.input_shape}")
+        # print(f"🎯 Expected input: (batch_size, 64, 64, 1)")
         return model
     except Exception as e:
         print(f"❌ Error loading 64x64 HYBRID model: {e}")
+        # print(f"🔍 Tried path: {MODEL_PATH}")
+        # print(f"🔍 Path exists: {os.path.exists(MODEL_PATH)}")
+        
         # Fallback to previous models (64x64 compatible)
         fallback_paths = [
-            os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_improved_final.keras'),
-            os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_tradDataset.keras'),
-            os.path.join(PROJECT_ROOT, 'model_training', 'models', 'QuickDraw.h5'),
-            os.path.join(PROJECT_ROOT, 'models', 'QuickDraw.h5'),
-            os.path.join(PROJECT_ROOT, 'model_training', 'models', 'QuickDraw.keras')
+            # os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_CALIBRATED_64x64.keras'),
+            # os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_improved_64x64_final.keras'),
+            # os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_improved_final.keras'),
+            # os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_tradDataset.keras'),
+            # os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_improved_64x64.keras'),
+            # os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_improved.keras'),
         ]
         
         for fallback_path in fallback_paths:
+            print(f"🔄 Trying fallback: {fallback_path}")
+            print(f"🔍 Exists: {os.path.exists(fallback_path)}")
             try:
                 model = tf.keras.models.load_model(fallback_path)
-                print(f"✅ Fallback model loaded from {fallback_path}")
-                print(f"⚠️  Using fallback model - performance may be reduced")
+                # print(f"Fallback model loaded from {fallback_path}")
+                # print(f"Using fallback model - performance may be reduced")
                 return model
             except Exception as e2:
+                # print(f"Fallback failed: {e2}")
                 continue
         
-        print(f"❌ Could not load any model. Please ensure model files exist.")
-        print(f"🔍 Searched paths:")
-        print(f"   Primary: {MODEL_PATH}")
-        for path in fallback_paths:
-            print(f"   Fallback: {path}")
+        # print(f"❌ Could not load any model. Please ensure model files exist.")
+        # print(f"🔍 Searched paths:")
+        # print(f"   Primary: {MODEL_PATH}")
+        # for path in fallback_paths:
+            # print(f"   Fallback: {path}")
+        
+        # List available files for debugging
+        # model_dir = os.path.join(PROJECT_ROOT, 'model_training', 'model_trad')
+        # if os.path.exists(model_dir):
+        #     print(f"📁 Available files in {model_dir}:")
+        #     for file in os.listdir(model_dir):
+        #         print(f"   📄 {file}")
+        # else:
+        #     print(f"❌ Model directory not found: {model_dir}")
+            
         return None
 
 
@@ -118,26 +145,26 @@ def predict_drawing(drawing_data):
             return {"error": "Failed to process drawing", "prediction": "unknown", "confidence": 0.0}
         
         # Log image shape for debugging
-        print(f"🔍 Processed image shape: {processed_image.shape}")
+        print(f"Processed image shape: {processed_image.shape}")
         
         # CRITICAL: Check model input shape and ensure compatibility
         expected_shape = model.input_shape[1:3]  # (height, width)
         actual_shape = processed_image.shape[1:3]  # (height, width)
         
-        print(f"🎯 Model expects: {expected_shape}, Got: {actual_shape}")
+        print(f"Model expects: {expected_shape}, Got: {actual_shape}")
         
         if actual_shape != expected_shape:
-            print(f"⚠️  Shape mismatch! Resizing {actual_shape} to {expected_shape}")
+            print(f"Shape mismatch! Resizing {actual_shape} to {expected_shape}")
             from PIL import Image
             # Convert back to PIL for resizing (keeping normalized values)
             img_pil = Image.fromarray((processed_image[0, :, :, 0] * 255).astype(np.uint8))
             img_resized = img_pil.resize(expected_shape[::-1], Image.Resampling.LANCZOS)  # PIL uses (width, height)
             processed_image = np.array(img_resized, dtype=np.float32) / 255.0  # Normalize for 64x64 model
             processed_image = processed_image.reshape(1, expected_shape[0], expected_shape[1], 1)
-            print(f"🔄 Resized to {processed_image.shape} for model compatibility (normalized values)")
+            print(f"Resized to {processed_image.shape} for model compatibility (normalized values)")
         else:
-            print(f"✅ Perfect shape match! Using 64x64 directly with HYBRID preprocessing!")
-        
+            print(f"Perfect shape match! Using 64x64 directly with HYBRID preprocessing!")
+
         # Make prediction
         prediction_probs = model.predict(processed_image, verbose=0)
         predicted_class_idx = np.argmax(prediction_probs[0])
@@ -151,13 +178,13 @@ def predict_drawing(drawing_data):
             top_predictions[CLASS_LABELS[idx]] = float(prediction_probs[0][idx])
         
         # Log prediction details for debugging
-        print(f"🤖 HYBRID 64x64 Model prediction details:")
+        print(f"HYBRID 64x64 Model prediction details:")
         print(f"   Canvas: 400x400 (square) → 64x64 via HYBRID approach")
         print(f"   Drawing points: {len(drawing_data)}")
         print(f"   Prediction: {predicted_label} ({confidence*100:.1f}%)")
         print(f"   Top 3: {list(top_predictions.keys())[:3]}")
-        print(f"   🚀 HYBRID: OpenCV preprocessing + 64x64 resolution")
-        print(f"   🔧 TECHNIQUES: medianBlur + GaussianBlur + OTSU + contour crop")
+        print(f"   HYBRID: OpenCV preprocessing + 64x64 resolution")
+        print(f"   TECHNIQUES: medianBlur + GaussianBlur + OTSU + contour crop")
         
         if confidence > 0.5:
             print(f"   🎉 EXCELLENT confidence! Hybrid approach working perfectly.")
