@@ -16,6 +16,7 @@ class CoordinatePoint(BaseModel):
 router = APIRouter()
 
 @router.post("/api/recognize-drawing")
+@router.post("/api/recognize-drawing/")
 async def recognize_drawing(data: DrawingData):
     """
     Recognize drawing from 15 QuickDraw classes
@@ -82,6 +83,7 @@ async def recognize_drawing(data: DrawingData):
         )
 
 @router.get("/api/random-object")
+@router.get("/api/random-object/")
 async def get_random_drawing_object():
     """
     Get a random object for the user to draw from 21 QuickDraw classes
@@ -100,8 +102,9 @@ async def get_random_drawing_object():
             content={"error": f"Server error: {str(e)}", "object": "apple"}
         )
 
-# Route to check model status
+# Route to check model status - support both with and without trailing slash
 @router.get("/api/model-info")
+@router.get("/api/model-info/")
 async def model_info():
     """
     Get information about the loaded model
@@ -116,6 +119,7 @@ async def model_info():
         )
 
 @router.get("/api/health")
+@router.get("/api/health/")
 async def health_check():
     """
     Simple health check for the API
