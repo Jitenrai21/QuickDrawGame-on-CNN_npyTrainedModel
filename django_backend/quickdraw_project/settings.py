@@ -167,11 +167,8 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# Security settings for development
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:8000',
-    'http://127.0.0.1:8000',
-]
+# Django behavior settings
+APPEND_SLASH = False  # Disable automatic trailing slash addition to match FastAPI behavior
 
 # Logging configuration
 LOGGING = {
