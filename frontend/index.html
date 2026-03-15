@@ -3,75 +3,155 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎨 QuickDraw - 32 Classes!</title>
-    <link rel="stylesheet" href="css/main.css">
+    <title>QuickDraw | AI Drawing Recognition Game</title>
+    <meta name="description" content="Draw quickly and help the AI recognize one of 32 objects in this interactive QuickDraw game.">
+    <meta name="theme-color" content="#f0ede6">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta name="description" content="AI-powered drawing game - Can you draw objects fast enough for the AI to recognize from 15 different categories?">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Display:wght@500;700&family=Questrial&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/main.css?v=4.1.2">
 </head>
 <body>
-    <!-- Start Screen -->
-    <div id="start-screen" class="screen">
-        <h1>🎨 QuickDraw!</h1>
-        <p class="subtitle">32 Different Objects Edition</p>
-        <p id="instruction">Draw the object: <span id="object-placeholder">🍎 Apple</span></p>
-        <p class="game-info">
-            ⏱️ You have 30 seconds to draw!<br>
-            🎯 Make it clear so the AI can recognize it!<br>
-            ✏️ Use your mouse or finger to draw<br>
-            🏆 32 possible classes to master!
-        </p>
-        <div class="classes-preview">
-            <small>
-                <strong>Available Objects (32):</strong><br>
-                ✈️ 🍎 🍌 🚲 🎀 🚌 🕯️ 🚗 🐱 💻 🐶 🚪 🐘 ✉️ 🐟 🌸 🎸 🐴 🏠 🍦 ⚡ 🌙 ⛰️ 🐰 😊 ⭐ ☀️ ⛺ 🪥 🌳 🚚 ⌚
-            </small>
-        </div>
-        <button id="start-button">Start Game</button>
-        <div class="controls-hint">
-            <small>💡 Tip: Press 'C' to clear, 'Enter' to start/restart</small>
-        </div>
-    </div>
-
-    <!-- Game Screen -->
-    <div id="game-screen" class="screen">
-        <h1> 🎨 QuickDraw!</h1>
-        <div class="game-header">
-            <p class="draw-instruction">Draw: <span id="current-object">🍎 Apple</span></p>
-            <div class="game-info-row">
-                <p id="timer" class="timer">Time left: <span id="time-left">30</span> seconds</p>
-                <p id="ai-prediction" class="ai-prediction">AI sees: <span id="prediction-text">Start drawing...</span></p>
+    <div class="page-shell" role="application" aria-label="QuickDraw game interface">
+        <header class="site-header" role="banner" id="site-header" data-toggle="game-hidden">
+            <div class="header-content">
+                <p class="eyebrow" aria-hidden="true">Interactive Game</p>
+                <h1>QuickDraw Challenge</h1>
+                <p class="header-copy">Draw 32 different objects in 30 seconds. The AI learns to recognize your sketches in real-time.</p>
             </div>
-        </div>
-        <canvas id="drawing-canvas"></canvas>
-        <div id="controls">
-            <button id="clear-button">🗑️ Clear</button>
-        </div>
-        <div class="drawing-tips">
-            <small>💡 Make your drawing clear and recognizable!</small>
-        </div>
+        </header>
+
+        <main class="game-layout" id="game-root" role="main">
+            <section id="start-screen" class="screen is-active" aria-labelledby="start-title" aria-describedby="start-description">
+                <div class="section-content">
+                    <h2 id="start-title" class="section-title">Ready to Draw?</h2>
+                    <p id="start-description" class="section-description">Get ready to sketch the target object. The AI will attempt to recognize it as you draw.</p>
+                    
+                    <div class="target-card">
+                        <span class="target-label">Your target:</span>
+                        <span class="target-object" id="object-placeholder">🍎 Apple</span>
+                    </div>
+                    
+                    <details class="rules-section" open>
+                        <summary class="rules-heading">How to Play</summary>
+                        <ol class="rules-list">
+                            <li>Press <strong>Start Round</strong> to begin</li>
+                            <li>You have <strong>30 seconds</strong> to draw</li>
+                            <li>Use mouse, trackpad, or touch to sketch</li>
+                            <li>Press <kbd>C</kbd> to clear, <kbd>Enter</kbd> to restart</li>
+                            <li>Try to make your drawing clear and recognizable</li>
+                        </ol>
+                    </details>
+                    
+                    <details class="categories-section">
+                        <summary class="categories-heading">All 32 Object Categories</summary>
+                        <div class="categories-grid" role="list" aria-label="Available object categories">
+                            <span role="listitem">✈️ Airplane</span>
+                            <span role="listitem">🍎 Apple</span>
+                            <span role="listitem">🍌 Banana</span>
+                            <span role="listitem">🚲 Bicycle</span>
+                            <span role="listitem">🎀 Bowtie</span>
+                            <span role="listitem">🚌 Bus</span>
+                            <span role="listitem">🕯️ Candle</span>
+                            <span role="listitem">🚗 Car</span>
+                            <span role="listitem">🐱 Cat</span>
+                            <span role="listitem">💻 Computer</span>
+                            <span role="listitem">🐶 Dog</span>
+                            <span role="listitem">🚪 Door</span>
+                            <span role="listitem">🐘 Elephant</span>
+                            <span role="listitem">✉️ Envelope</span>
+                            <span role="listitem">🐟 Fish</span>
+                            <span role="listitem">🌸 Flower</span>
+                            <span role="listitem">🎸 Guitar</span>
+                            <span role="listitem">🐴 Horse</span>
+                            <span role="listitem">🏠 House</span>
+                            <span role="listitem">🍦 Ice Cream</span>
+                            <span role="listitem">⚡ Lightning</span>
+                            <span role="listitem">🌙 Moon</span>
+                            <span role="listitem">⛰️ Mountain</span>
+                            <span role="listitem">🐰 Rabbit</span>
+                            <span role="listitem">😊 Smiley Face</span>
+                            <span role="listitem">⭐ Star</span>
+                            <span role="listitem">☀️ Sun</span>
+                            <span role="listitem">⛺ Tent</span>
+                            <span role="listitem">🪥 Toothbrush</span>
+                            <span role="listitem">🌳 Tree</span>
+                            <span role="listitem">🚚 Truck</span>
+                            <span role="listitem">⌚ Wristwatch</span>
+                        </div>
+                    </details>
+                    
+                    <button id="start-button" class="btn btn-primary btn-lg" type="button" aria-label="Start a drawing round">
+                        <span class="btn-text">Start Round</span>
+                        <span class="btn-icon" aria-hidden="true">→</span>
+                    </button>
+                </div>
+            </section>
+
+            <section id="game-screen" class="screen" aria-labelledby="game-title" hidden>
+                <div class="section-content">
+                    <header class="play-header">
+                        <h2 id="game-title" class="section-title">Draw This:<br><span class="target-highlight" id="current-object" aria-live="polite">🍎 Apple</span></h2>
+                        <div class="status-row">
+                            <div class="status-item status-timer" id="timer" role="status" aria-label="Time remaining">
+                                <span class="status-label" aria-hidden="true">⏱️</span>
+                                <span class="status-value"><span id="time-left">30</span>s</span>
+                            </div>
+                            <div class="status-item status-prediction" id="ai-prediction" role="status" aria-label="AI prediction" aria-live="polite" aria-atomic="true">
+                                <span class="status-label" aria-hidden="true">AI sees:</span>
+                                <span class="status-value"><span id="prediction-text">Start drawing...</span></span>
+                            </div>
+                        </div>
+                    </header>
+
+                    <article class="canvas-section" role="region" aria-label="Drawing area">
+                        <canvas
+                            id="drawing-canvas"
+                            width="400"
+                            height="400"
+                            role="img"
+                            aria-label="Blank canvas for drawing the target object"
+                            tabindex="0">
+                        </canvas>
+                        <div id="live-status" class="live-status" role="status" aria-live="polite" aria-label="Drawing feedback"></div>
+                    </article>
+
+                    <div class="control-row">
+                        <button id="clear-button" class="btn btn-secondary" type="button" aria-label="Clear the drawing canvas">
+                            <span class="btn-icon" aria-hidden="true">🗑️</span>
+                            <span class="btn-text">Clear</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="post-game-screen" class="screen" aria-labelledby="result-title" hidden>
+                <div class="section-content">
+                    <h2 id="result-title" class="section-title">Round Results</h2>
+                    <div id="model-guess" class="result-display" role="status" aria-live="polite" aria-atomic="true">
+                        <div class="loading-state" id="loading-result" hidden>
+                            <span class="spinner" aria-hidden="true"></span>
+                            <span>Analyzing your drawing...</span>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <button id="restart-button" class="btn btn-primary btn-lg" type="button" aria-label="Play another round">
+                            <span class="btn-text">Play Again</span>
+                            <span class="btn-icon" aria-hidden="true">↻</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="game-footer" role="contentinfo">
+            <p><small>Powered by TensorFlow + FastAPI | Trained on QuickDraw dataset</small></p>
+        </footer>
     </div>
 
-    <!-- Post-Game Screen -->
-    <div id="post-game-screen" class="screen">
-        <h1>⏰ Time's Up!</h1>
-        <div id="model-guess" class="result-display">
-            <div style="color: #666;">🤔 Analyzing your drawing...</div>
-        </div>
-        <div class="game-controls">
-            <button id="restart-button">🔄 Play Again</button>
-        </div>
-        <div class="score-info">
-            <small>🎯 Try to get the AI to recognize your drawings!</small>
-        </div>
-    </div>
-
-    <!-- Footer -->
-    <footer class="game-footer">
-        <p>Powered by TensorFlow & FastAPI | AI Model trained on QuickDraw dataset</p>
-    </footer>
-
-    <script src="script.js?v=3.0.0"></script>
+    <script src="script.js?v=4.1.2" defer></script>
 </body>
 </html>

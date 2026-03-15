@@ -1,624 +1,834 @@
-// Get references to the HTML elements
-const startScreen = document.getElementById("start-screen");
-const gameScreen = document.getElementById("game-screen");
-const postGameScreen = document.getElementById("post-game-screen");
-const startButton = document.getElementById("start-button");
-const restartButton = document.getElementById("restart-button");
-const timeLeftDisplay = document.getElementById("time-left");
-const currentObjectDisplay = document.getElementById("current-object");
-const objectPlaceholder = document.getElementById("object-placeholder");
-const clearButton = document.getElementById("clear-button");
-const modelGuessDisplay = document.getElementById("model-guess");
-const predictionTextDisplay = document.getElementById("prediction-text");
-const canvas = document.getElementById("drawing-canvas");
-const ctx = canvas.getContext("2d");
+/**
+ * QuickDraw Game Frontend
+ * 
+ * A real-time drawing recognition game powered by deep learning.
+ * Detects 32 QuickDraw categories with live AI feedback.
+ * 
+ * Architecture:
+ * - State: Centralized game state object
+ * - UI: Cached DOM references for performance
+ * - Events: Modular event handlers for user input
+ * - API: Abstracted fetch operations with error handling
+ * - Rendering: DOM-based (no innerHTML string interpolation)
+ * 
+ * @module frontend/script.js
+ */
 
-// Game state variables
-let drawing = false;
-let lastX = 0;
-let lastY = 0;
-let timeLeft = 30;
-let timer;
-let currentObject = "";
-let gameActive = false;
-let gameWon = false;
+// ===================== API & Config =====================
 
-// Real-time evaluation variables
-let evaluationTimeout;
-let lastEvaluationTime = 0;
-const EVALUATION_DELAY = 1000; // 1 second delay between evaluations
-let isEvaluating = false;
+/** @type {string} API base URL - localhost for development, current origin for production */
+const API_BASE_URL = window.location.origin.includes('localhost')
+    ? 'http://localhost:8000'
+    : window.location.origin;
 
-// Array to hold the sequence of drawing coordinates with stroke information
-// Updated for square canvas (400x400)
-let drawingData = [];
-let currentStroke = []; // Track current stroke
-let strokeStartTime = 0;
-const CANVAS_SIZE = { width: 400, height: 400 }; // Square canvas constants
+/** @type {number} Duration of each game round in seconds */
+const ROUND_DURATION_SECONDS = 30;
 
-// Set canvas size - Square canvas for better aspect ratio
-canvas.width = 400;
-canvas.height = 400;
+/** @type {number} Minimum interval between real-time model evaluations (ms) */
+const REALTIME_EVAL_MIN_INTERVAL_MS = 1000;
 
-// Configure canvas for better drawing
-ctx.lineCap = 'round';
-ctx.lineJoin = 'round';
-ctx.strokeStyle = '#000';
-ctx.lineWidth = 5;
+/** @type {number} Delay before evaluating drawing after stroke completes (ms) */
+const STROKE_EVAL_DELAY_MS = 550;
 
-// API base URL - adjust if your backend runs on different port
-const API_BASE_URL = window.location.origin.includes('localhost') ? 
-    'http://localhost:8000' : window.location.origin;
+/** @type {number} Canvas size in pixels (400x400) */
+const CANVAS_SIZE = 400;
 
-// Global emoji mapping for all 32 objects (fetched from backend, with local fallback)
-let emojiMap = {
-    'airplane': '✈️', 'apple': '🍎', 'banana': '🍌', 'bicycle': '🚲', 'bowtie': '🎀',
-    'bus': '🚌', 'candle': '🕯️', 'car': '🚗', 'cat': '🐱', 'computer': '💻',
-    'dog': '🐶', 'door': '🚪', 'elephant': '🐘', 'envelope': '✉️', 'fish': '🐟',
-    'flower': '🌸', 'guitar': '🎸', 'horse': '🐴', 'house': '🏠', 'ice cream': '🍦',
-    'lightning': '⚡', 'moon': '🌙', 'mountain': '⛰️', 'rabbit': '🐰', 'smiley face': '😊',
-    'star': '⭐', 'sun': '☀️', 'tent': '⛺', 'toothbrush': '🪥', 'tree': '🌳',
-    'truck': '🚚', 'wristwatch': '⌚'
+/** 
+ * Emoji mapping for recognized objects
+ * Maintains consistent visual identity for game objects
+ * Falls back to question mark if object is unrecognized
+ * @type {Object<string, string>}
+ */
+const FALLBACK_EMOJIS = {
+    airplane: '✈️', apple: '🍎', banana: '🍌', bicycle: '🚲', bowtie: '🎀',
+    bus: '🚌', candle: '🕯️', car: '🚗', cat: '🐱', computer: '💻',
+    dog: '🐶', door: '🚪', elephant: '🐘', envelope: '✉️', fish: '🐟',
+    flower: '🌸', guitar: '🎸', horse: '🐴', house: '🏠', 'ice cream': '🍦',
+    lightning: '⚡', moon: '🌙', mountain: '⛰️', rabbit: '🐰', 'smiley face': '😊',
+    star: '⭐', sun: '☀️', tent: '⛺', toothbrush: '🪥', tree: '🌳',
+    truck: '🚚', wristwatch: '⌚'
 };
 
-// Class list for 32-class model (local fallback if backend fails)
-const CLASS_LABELS_32 = [
-    'airplane', 'apple', 'banana', 'bicycle', 'bowtie', 'bus', 'candle', 'car', 'cat', 'computer',
-    'dog', 'door', 'elephant', 'envelope', 'fish', 'flower', 'guitar', 'horse', 'house', 'ice cream',
-    'lightning', 'moon', 'mountain', 'rabbit', 'smiley face', 'star', 'sun', 'tent', 'toothbrush',
-    'tree', 'truck', 'wristwatch'
-];
 
-// Model info cache (updated during initialization)
-let modelInfo = null;
+/** @type {Array<string>} List of all supported object classes in fallback mode */
+const FALLBACK_CLASSES = Object.keys(FALLBACK_EMOJIS);
 
-// Initialize the game
-document.addEventListener('DOMContentLoaded', function() {
+/**
+ * Central state management object
+ * Tracks all game variables and player progress
+ * @type {Object}
+ * @property {number|null} timerId - Active interval ID for game timer
+ * @property {number|null} evaluationTimeoutId - Pending evaluation timeout ID
+ * @property {Object|null} modelInfo - Backend model metadata
+ * @property {string} currentObject - Target object label player must draw
+ * @property {boolean} gameActive - Whether game is currently running
+ * @property {boolean} gameWon - Whether player successfully matched target
+ * @property {number} timeLeft - Seconds remaining in current round
+ * @property {boolean} drawing - Whether user is actively drawing
+ * @property {Array<Object>} drawingData - Complete stroke history with timestamps
+ * @property {Array<Object>} currentStroke - Points in stroke being drawn
+ * @property {Object} lastPoint - Last canvas coordinate drawn
+ * @property {number} lastRealtimeEvalAt - Timestamp of last real-time evaluation
+ * @property {boolean} isEvaluating - Whether evaluation is in progress
+ */
+const state = {
+    timerId: null,
+    evaluationTimeoutId: null,
+    modelInfo: null,
+    currentObject: '',
+    gameActive: false,
+    gameWon: false,
+    timeLeft: ROUND_DURATION_SECONDS,
+    drawing: false,
+    drawingData: [],
+    currentStroke: [],
+    lastPoint: { x: 0, y: 0 },
+    lastRealtimeEvalAt: 0,
+    isEvaluating: false
+};
+
+/**
+ * Cached DOM element references
+ * Centralizes selectors to prevent repeated queries
+ * @type {Object}
+ * @property {HTMLElement} startScreen - Start game screen container
+ * @property {HTMLElement} gameScreen - Active game screen container
+ * @property {HTMLElement} postGameScreen - Results screen container
+ * @property {HTMLElement} startButton - Button to begin new game
+ * @property {HTMLElement} restartButton - Button to restart game
+ * @property {HTMLElement} clearButton - Button to clear canvas
+ * @property {HTMLElement} objectPlaceholder - Emoji display during start screen
+ * @property {HTMLElement} currentObjectLabel - Object label during game
+ * @property {HTMLElement} timerContainer - Timer display container
+ * @property {HTMLElement} timeLeft - Time remaining text
+ * @property {HTMLElement} predictionText - Live model prediction display
+ * @property {HTMLElement} modelGuess - Result display area
+ * @property {HTMLElement} liveStatus - Accessibility live region
+ * @property {HTMLElement} loadingResult - Loading spinner/message
+ * @property {HTMLCanvasElement} canvas - Drawing canvas element
+ */
+const ui = {
+    startScreen: document.getElementById('start-screen'),
+    gameScreen: document.getElementById('game-screen'),
+    postGameScreen: document.getElementById('post-game-screen'),
+    startButton: document.getElementById('start-button'),
+    restartButton: document.getElementById('restart-button'),
+    clearButton: document.getElementById('clear-button'),
+    siteHeader: document.getElementById('site-header'),
+    objectPlaceholder: document.getElementById('object-placeholder'),
+    currentObjectLabel: document.getElementById('current-object'),
+    timerContainer: document.getElementById('timer'),
+    timeLeft: document.getElementById('time-left'),
+    predictionText: document.getElementById('prediction-text'),
+    modelGuess: document.getElementById('model-guess'),
+    liveStatus: document.getElementById('live-status'),
+    loadingResult: document.getElementById('loading-result'),
+    canvas: document.getElementById('drawing-canvas')
+};
+
+/** @type {CanvasRenderingContext2D} 2D canvas drawing context */
+const ctx = ui.canvas.getContext('2d', { willReadFrequently: true });
+
+/**
+ * Application bootstrap
+ * Initializes canvas, event handlers, and game state
+ * Called on DOMContentLoaded
+ */
+function bootstrap() {
+    configureCanvas();
+    bindUiEvents();
     initializeGame();
-});
+}
 
+/**
+ * Configures canvas drawing properties
+ * Sets size, drawing style, and performance hints
+ * Must be called before any drawing operations
+ */
+function configureCanvas() {
+    ui.canvas.width = CANVAS_SIZE;
+    ui.canvas.height = CANVAS_SIZE;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const strokeColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--ink-color')
+        .trim();
+    ctx.strokeStyle = strokeColor || '#2c2a27';
+    ctx.lineWidth = 5;
+    clearCanvas();
+}
+
+/**
+ * Attaches event listeners to UI controls
+ * Handles click events on buttons and pointer events on canvas
+ * Also sets up keyboard shortcuts (C for clear, Enter to start/restart)
+ */
+function bindUiEvents() {
+    ui.startButton.addEventListener('click', startGame);
+    ui.restartButton.addEventListener('click', restartGame);
+    ui.clearButton.addEventListener('click', clearCanvas);
+
+    ui.canvas.addEventListener('pointerdown', onPointerDown);
+    ui.canvas.addEventListener('pointermove', onPointerMove);
+    ui.canvas.addEventListener('pointerup', onPointerUp);
+    ui.canvas.addEventListener('pointerleave', onPointerUp);
+    ui.canvas.addEventListener('pointercancel', onPointerUp);
+
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+}
+
+/**
+ * Initializes game by fetching model metadata and loading target object
+ * Handles fallback if backend is unavailable
+ * Updates live status and disables buttons during loading
+ * @async
+ */
 async function initializeGame() {
+    setLiveStatus('Connecting to backend...');
+    setButtonsLoading(true);
+
     try {
-        // Fetch model info from backend and cache it
-        const response = await fetch(`${API_BASE_URL}/api/model-info`);
-        if (!response.ok) {
-            throw new Error(`Backend returned ${response.status}`);
+        state.modelInfo = await fetchJson(`${API_BASE_URL}/api/model-info`);
+
+        if (state.modelInfo && state.modelInfo.error) {
+            throw new Error(state.modelInfo.error);
         }
-        
-        modelInfo = await response.json();
-        
-        if (modelInfo.error) {
-            console.error('Model not loaded:', modelInfo.error);
-            alert('⚠️ Model not loaded. Backend error: ' + modelInfo.error);
-            return;
-        }
-        
-        console.log('Model loaded successfully. Classes:', modelInfo.output_classes, 'Input shape:', modelInfo.input_shape);
-        
-        // Get initial random object
-        await getNewObject();
-        
+
+        await loadNewTargetObject();
+        setLiveStatus('Ready. Press Enter or Start Round to begin.');
     } catch (error) {
-        console.error('Error initializing game:', error);
-        alert('Failed to connect to backend at ' + API_BASE_URL + '. Is the server running?');
+        console.error('Initialization error:', error);
+        setNotice(
+            ui.modelGuess,
+            'error',
+            `Could not connect to the backend. ${error.message || 'Please verify the API server is running.'}`
+        );
+        setLiveStatus('Backend unavailable. Fallback mode enabled.');
+        await loadNewTargetObject();
+    } finally {
+        setButtonsLoading(false);
     }
 }
 
-// Get a new random object to draw
-async function getNewObject() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/random-object`);
-        const data = await response.json();
-        
-        if (data.success) {
-            currentObject = data.object;
-            const emoji = data.emoji || emojiMap[data.object] || '❓';
-            objectPlaceholder.textContent = `${emoji} ${currentObject.charAt(0).toUpperCase() + currentObject.slice(1)}`;
-        } else {
-            // Fallback to local selection from 32 classes
-            currentObject = CLASS_LABELS_32[Math.floor(Math.random() * CLASS_LABELS_32.length)];
-            const emoji = emojiMap[currentObject] || '❓';
-            objectPlaceholder.textContent = `${emoji} ${currentObject.charAt(0).toUpperCase() + currentObject.slice(1)}`;
-        }
-    } catch (error) {
-        console.error('Error getting random object:', error);
-        // Fallback to local selection
-        currentObject = CLASS_LABELS_32[Math.floor(Math.random() * CLASS_LABELS_32.length)];
-        const emoji = emojiMap[currentObject] || '❓';
-        objectPlaceholder.textContent = `${emoji} ${currentObject.charAt(0).toUpperCase() + currentObject.slice(1)}`;
-    }
+/**
+ * Enables or disables start and restart buttons
+ * Called during async operations (model loading, API calls)
+ * @param {boolean} isLoading - True to disable, false to enable
+ */
+function setButtonsLoading(isLoading) {
+    ui.startButton.disabled = isLoading;
+    ui.restartButton.disabled = isLoading;
 }
 
-// Event listeners
-startButton.addEventListener("click", startGame);
-restartButton.addEventListener("click", restartGame);
-clearButton.addEventListener("click", clearCanvas);
+/**
+ * Switches active game screen with animation
+ * Hides all screens except the active one
+ * Also controls header visibility (hidden during game/results screens)
+ * @param {HTMLElement} activeScreen - Screen element to display (start, game, or result)
+ */
+function setScreen(activeScreen) {
+    const screens = [ui.startScreen, ui.gameScreen, ui.postGameScreen];
+    screens.forEach((screen) => {
+        const isActive = screen === activeScreen;
+        screen.classList.toggle('is-active', isActive);
+        screen.hidden = !isActive;
+    });
+    
+    // Hide header during game and post-game screens, show on start screen
+    const shouldHideHeader = activeScreen !== ui.startScreen;
+    ui.siteHeader.classList.toggle('hidden-for-game', shouldHideHeader);
+}
 
-// Timer function
+/**
+ * Updates live status aria-live region for accessibility
+ * Announces game messages to screen readers
+ * @param {string} message - Status message to display and announce
+ */
+function setLiveStatus(message) {
+    ui.liveStatus.textContent = message || '';
+}
+
+/**
+ * Resets prediction display to hint text
+ * Called when game starts or canvas is cleared
+ */
+function resetPredictionLabel() {
+    ui.predictionText.textContent = 'Start drawing...';
+}
+
+/**
+ * Resets game timer to maximum duration
+ * Clears any custom timer styling
+ */
+function resetTimer() {
+    state.timeLeft = ROUND_DURATION_SECONDS;
+    ui.timeLeft.textContent = state.timeLeft;
+    ui.timerContainer.style.color = '';
+}
+
+/**
+ * Loads new random target object from backend
+ * Falls back to random selection if API unavailable
+ * Updates both start screen and game screen labels
+ * @async
+ */
+async function loadNewTargetObject() {
+    let objectLabel;
+
+    try {
+        const data = await fetchJson(`${API_BASE_URL}/api/random-object`);
+        if (data && data.success && data.object) {
+            objectLabel = data.object.toLowerCase();
+            if (data.emoji) {
+                FALLBACK_EMOJIS[objectLabel] = data.emoji;
+            }
+        }
+    } catch (error) {
+        console.warn('Could not fetch random object, using fallback:', error);
+    }
+
+    if (!objectLabel) {
+        objectLabel = FALLBACK_CLASSES[Math.floor(Math.random() * FALLBACK_CLASSES.length)];
+    }
+
+    state.currentObject = objectLabel;
+    const display = getObjectDisplay(objectLabel);
+    ui.objectPlaceholder.textContent = display;
+    ui.currentObjectLabel.textContent = display;
+}
+
+/**
+ * Initiates new game round
+ * Clears canvas, resets state, starts timer
+ * Transitions to game screen
+ */
+function startGame() {
+    setScreen(ui.gameScreen);
+    state.gameActive = true;
+    state.gameWon = false;
+    state.isEvaluating = false;
+    state.lastRealtimeEvalAt = 0;
+    state.drawingData = [];
+    state.currentStroke = [];
+
+    clearPendingEval();
+    clearCanvas();
+    resetPredictionLabel();
+    resetTimer();
+    startTimer();
+
+    setLiveStatus('Draw now. The model updates after each stroke.');
+}
+
+/**
+ * Starts the round timer
+ * Updates display every second, changes color as time runs out
+ * Ends game when timer reaches zero
+ * Uses 1-second interval; cleared when game ends
+ */
 function startTimer() {
-    timer = setInterval(() => {
-        // Don't continue timer if game was won early
-        if (gameWon || !gameActive) {
-            clearInterval(timer);
+    clearInterval(state.timerId);
+
+    state.timerId = setInterval(() => {
+        if (!state.gameActive || state.gameWon) {
+            clearInterval(state.timerId);
             return;
         }
-        
-        timeLeft--;
-        timeLeftDisplay.textContent = timeLeft;
-        
-        // Change color when time is running out
-        if (timeLeft <= 10) {
-            timeLeftDisplay.style.color = '#ff4444';
-        } else if (timeLeft <= 20) {
-            timeLeftDisplay.style.color = '#ff8800';
+
+        state.timeLeft -= 1;
+        ui.timeLeft.textContent = Math.max(state.timeLeft, 0);
+
+        if (state.timeLeft <= 10) {
+            ui.timerContainer.style.color = '#7f2c1f';
+        } else if (state.timeLeft <= 20) {
+            ui.timerContainer.style.color = '#7d6f65';
         }
-        
-        if (timeLeft <= 0) {
-            clearInterval(timer);
-            gameActive = false;
+
+        if (state.timeLeft <= 0) {
+            clearInterval(state.timerId);
+            state.gameActive = false;
             endGame();
         }
     }, 1000);
 }
 
-// Start the game
-function startGame() {
-    startScreen.style.display = "none";
-    gameScreen.style.display = "block";
-    currentObjectDisplay.textContent = objectPlaceholder.textContent;
-    timeLeft = 30;
-    timeLeftDisplay.textContent = timeLeft;
-    timeLeftDisplay.style.color = '#333';
-    drawingData = [];
-    gameActive = true;
-    gameWon = false;
-    isEvaluating = false;
-    
-    // Reset prediction display
-    if (predictionTextDisplay) {
-        predictionTextDisplay.textContent = "Start drawing...";
+/**
+ * Cancels any pending evaluation timeout
+ * Prevents evaluation duplication if drawing is rapid
+ */
+function clearPendingEval() {
+    if (state.evaluationTimeoutId) {
+        clearTimeout(state.evaluationTimeoutId);
+        state.evaluationTimeoutId = null;
     }
-    
-    clearCanvas();
-    startTimer();
 }
 
-// Real-time drawing evaluation with debouncing
-async function evaluateDrawingRealTime() {
-    // Don't evaluate if game is not active or already won
-    if (!gameActive || gameWon || isEvaluating) return;
-    
-    // Don't evaluate if there's not enough drawing data
-    if (drawingData.length < 10) return;
-    
-    // Debouncing: don't evaluate too frequently
-    const now = Date.now();
-    if (now - lastEvaluationTime < EVALUATION_DELAY) return;
-    
-    lastEvaluationTime = now;
-    isEvaluating = true;
-    
-    try {
-        const requestData = {
-            drawing: drawingData,
-            object: currentObject
-        };
+/**
+ * Handles pointer down on canvas
+ * Initializes new stroke with first point
+ * Captures pointer to canvas to support all input types (mouse, touch, pen)
+ * @param {PointerEvent} event - Pointer down event
+ */
+function onPointerDown(event) {
+    if (!state.gameActive) {
+        return;
+    }
 
-        const response = await fetch(`${API_BASE_URL}/api/recognize-drawing`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestData)
+    ui.canvas.setPointerCapture(event.pointerId);
+    state.drawing = true;
+
+    const point = getCanvasCoordinates(event);
+    state.lastPoint = point;
+    state.currentStroke = [{ x: point.x, y: point.y, timestamp: Date.now() }];
+}
+
+/**
+ * Handles pointer move on canvas
+ * Draws line from last point to current point
+ * Accumulates point data for stroke
+ * Only active when pointer is down and game is running
+ * @param {PointerEvent} event - Pointer move event
+ */
+function onPointerMove(event) {
+    if (!state.gameActive || !state.drawing) {
+        return;
+    }
+
+    const point = getCanvasCoordinates(event);
+    const timestamp = Date.now();
+
+    state.currentStroke.push({ x: point.x, y: point.y, timestamp });
+
+    ctx.beginPath();
+    ctx.moveTo(state.lastPoint.x, state.lastPoint.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+
+    state.lastPoint = point;
+}
+
+/**
+ * Handles pointer up / pointer leave from canvas
+ * Finalizes stroke and triggers evaluation
+ * Releases pointer capture and resets drawing flag
+ * @param {PointerEvent} event - Pointer up or leave event
+ */
+function onPointerUp(event) {
+    if (!state.drawing) {
+        return;
+    }
+
+    state.drawing = false;
+
+    if (state.currentStroke.length > 0) {
+        state.drawingData = state.drawingData.concat(state.currentStroke);
+
+        const last = state.currentStroke[state.currentStroke.length - 1];
+        state.drawingData.push({
+            x: Math.min(CANVAS_SIZE, last.x + 100),
+            y: Math.min(CANVAS_SIZE, last.y + 100),
+            timestamp: Date.now(),
+            strokeEnd: true
         });
 
-        if (!response.ok) {
-            console.warn("Real-time evaluation failed:", response.status);
-            return;
-        }
+        state.currentStroke = [];
 
-        const data = await response.json();
-        console.log('Real-time evaluation:', data.prediction, 'Confidence:', (data.confidence * 100).toFixed(1) + '%');
-        
-        if (data.error) {
-            console.warn('Real-time evaluation error:', data.error);
-            return;
+        if (state.gameActive && !state.gameWon) {
+            clearPendingEval();
+            state.evaluationTimeoutId = setTimeout(evaluateDrawingRealtime, STROKE_EVAL_DELAY_MS);
         }
+    }
 
-        // Check if highest confidence prediction matches current object
-        const highestPrediction = data.prediction.toLowerCase();
-        const targetObject = currentObject.toLowerCase();
-        const isCorrectPrediction = highestPrediction === targetObject;
-        
-        // Update AI prediction display (object name only, no confidence)
-        if (predictionTextDisplay && gameActive) {
-            const emoji = emojiMap[highestPrediction] || '🤔';
-            const capitalizedPrediction = highestPrediction.charAt(0).toUpperCase() + highestPrediction.slice(1);
-            const displayText = `${emoji} ${capitalizedPrediction}`;
-            predictionTextDisplay.textContent = displayText;
-            console.log('Real-time prediction updated:', displayText);
-        }
-        
-        if (isCorrectPrediction) {
-            // SUCCESS! Prediction matches target object
-            gameWon = true;
-            gameActive = false;
-            const actualTime = 30 - timeLeft;
-            clearInterval(timer);
-            showImmediateSuccess(data, actualTime);
-        }
-        
-    } catch (error) {
-        console.warn('Real-time evaluation network error:', error);
-    } finally {
-        isEvaluating = false;
+    if (ui.canvas.hasPointerCapture(event.pointerId)) {
+        ui.canvas.releasePointerCapture(event.pointerId);
     }
 }
 
-// Show immediate success screen
-function showImmediateSuccess(data, actualTime) {
-    gameScreen.style.display = "none";
-    postGameScreen.style.display = "block";
-    
-    // Get emoji from global mapping
-    const emoji = emojiMap[currentObject] || '❓';
-    
-    const successHTML = `
-        <div style="text-align: center; padding: 40px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(135deg, #28a745, #20c997); border-radius: 20px; color: white;">
-            <div style="font-size: 6em; margin-bottom: 30px;">🎉</div>
-            <h1 style="margin-bottom: 20px; font-size: 3em; font-weight: 700;">
-                AMAZING!
-            </h1>
-            <h2 style="margin-bottom: 30px; font-size: 2em; opacity: 0.9;">
-                AI Recognized Your ${emoji} ${currentObject.toUpperCase()}!
-            </h2>
-            
-            <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 15px; margin: 20px 0;">
-                <div style="font-size: 1.3em; line-height: 1.6;">
-                    🚀 Perfect! The AI recognized your drawing!<br>
-                    Great job on your artistic skills! 🎨
-                </div>
-            </div>
-        </div>
-    `;
-    
-    modelGuessDisplay.innerHTML = successHTML;
+/**
+ * Converts page coordinates to canvas coordinates
+ * Accounts for canvas size and DPI scaling
+ * Essential for accurate drawing across different screen sizes
+ * @param {PointerEvent} event - Event with clientX, clientY coordinates
+ * @returns {Object} Canvas coordinates {x, y}
+ */
+function getCanvasCoordinates(event) {
+    const rect = ui.canvas.getBoundingClientRect();
+    const scaleX = ui.canvas.width / rect.width;
+    const scaleY = ui.canvas.height / rect.height;
+
+    return {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top) * scaleY
+    };
 }
 
-// Drawing event listeners
-canvas.addEventListener("mousedown", startDrawing);
-canvas.addEventListener("mousemove", draw);
-canvas.addEventListener("mouseup", stopDrawing);
-canvas.addEventListener("mouseout", stopDrawing);
-
-// Touch events for mobile
-canvas.addEventListener("touchstart", handleTouch);
-canvas.addEventListener("touchmove", handleTouch);
-canvas.addEventListener("touchend", stopDrawing);
-
-function handleTouch(e) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent(e.type.replace('touch', 'mouse'), {
-        clientX: touch.clientX,
-        clientY: touch.clientY
-    });
-    canvas.dispatchEvent(mouseEvent);
-}
-
-function startDrawing(e) {
-    drawing = true;
-    [lastX, lastY] = getCoordinates(e);
-    strokeStartTime = Date.now();
-    
-    // Start a new stroke
-    currentStroke = [{ x: lastX, y: lastY, timestamp: strokeStartTime }];
-}
-
-function draw(e) {
-    if (!drawing) return;
-    
-    const [x, y] = getCoordinates(e);
-    const currentTime = Date.now();
-    
-    // Add point to current stroke
-    currentStroke.push({ x, y, timestamp: currentTime });
-    
-    // Draw on canvas
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    
-    [lastX, lastY] = [x, y];
-}
-
-function stopDrawing() {
-    if (drawing && currentStroke.length > 0) {
-        // Add the completed stroke to drawing data
-        drawingData = drawingData.concat(currentStroke);
-        
-        // Add a small gap indicator for stroke separation
-        if (currentStroke.length > 1) {
-            const lastPoint = currentStroke[currentStroke.length - 1];
-            // Add a point far away to indicate stroke end
-            drawingData.push({ 
-                x: lastPoint.x + 100, 
-                y: lastPoint.y + 100, 
-                timestamp: Date.now(),
-                strokeEnd: true 
-            });
-        }
-        
-        currentStroke = [];
-        
-        // Trigger real-time evaluation after each stroke completion
-        if (gameActive && !gameWon) {
-            // Clear any pending evaluation
-            if (evaluationTimeout) {
-                clearTimeout(evaluationTimeout);
-            }
-            
-            // Schedule evaluation with slight delay to allow for multi-stroke drawings
-            evaluationTimeout = setTimeout(() => {
-                evaluateDrawingRealTime();
-            }, 500); // 500ms delay after stroke completion
-        }
-    }
-    drawing = false;
-}
-
-// Get coordinates for mouse events
-function getCoordinates(e) {
-    const rect = canvas.getBoundingClientRect();
-    return [
-        e.clientX - rect.left,
-        e.clientY - rect.top
-    ];
-}
-
-// Clear canvas
+/**
+ * Clears canvas and resets drawing state
+ * Updates status message and prediction label
+ * Cancels any pending evaluation
+ * Called on button click or 'C' keyboard shortcut
+ */
 function clearCanvas() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawingData = [];
-    currentStroke = [];
-    
-    // Reset prediction display when clearing
-    if (predictionTextDisplay && gameActive) {
-        predictionTextDisplay.textContent = "Start drawing...";
+    ctx.clearRect(0, 0, ui.canvas.width, ui.canvas.height);
+    state.drawingData = [];
+    state.currentStroke = [];
+
+    if (state.gameActive) {
+        resetPredictionLabel();
+        setLiveStatus('Canvas cleared. Draw again.');
     }
-    
-    // Clear any pending evaluations
-    if (evaluationTimeout) {
-        clearTimeout(evaluationTimeout);
-        evaluationTimeout = null;
+
+    clearPendingEval();
+}
+
+/**
+ * Evaluates drawing in real-time during gameplay
+ * Debounces API calls to avoid overwhelming server
+ * Automatically ends game if target is matched
+ * Updates prediction display with confidence
+ * @async
+ */
+async function evaluateDrawingRealtime() {
+    if (!state.gameActive || state.gameWon || state.isEvaluating) {
+        return;
+    }
+
+    if (state.drawingData.length < 10) {
+        return;
+    }
+
+    const now = Date.now();
+    if (now - state.lastRealtimeEvalAt < REALTIME_EVAL_MIN_INTERVAL_MS) {
+        return;
+    }
+
+    state.lastRealtimeEvalAt = now;
+    state.isEvaluating = true;
+
+    try {
+        const data = await recognizeDrawing();
+        updatePredictionDisplay(data.prediction);
+
+        if (normalizeLabel(data.prediction) === normalizeLabel(state.currentObject)) {
+            state.gameWon = true;
+            state.gameActive = false;
+            clearInterval(state.timerId);
+            renderImmediateSuccess(data);
+            setScreen(ui.postGameScreen);
+            setLiveStatus('Great job. The AI recognized your drawing early.');
+        }
+    } catch (error) {
+        console.warn('Realtime evaluation failed:', error);
+    } finally {
+        state.isEvaluating = false;
     }
 }
 
-// End game and get prediction
+/**
+ * Updates live prediction display with emoji and label
+ * Called after each real-time evaluation
+ * @param {string} prediction - Predicted object label
+ */
+function updatePredictionDisplay(prediction) {
+    const label = normalizeLabel(prediction);
+    const emoji = FALLBACK_EMOJIS[label] || '🤔';
+    ui.predictionText.textContent = `${emoji} ${toTitleCase(label)}`;
+}
+
+/**
+ * Ends active game round
+ * Sends final drawing to backend for recognition
+ * Displays result card with confidence and top predictions
+ * Handles empty drawing and network errors gracefully
+ * @async
+ */
 async function endGame() {
-    // If game was already won through real-time recognition, don't process again
-    if (gameWon) {
+    setScreen(ui.postGameScreen);
+
+    if (state.drawingData.length === 0) {
+        setNotice(ui.modelGuess, 'error', 'No drawing detected. Try another round and sketch at least one line.');
         return;
     }
-    
-    gameActive = false;
-    gameScreen.style.display = "none";
-    postGameScreen.style.display = "block";
-    
-    // Show loading message
-    modelGuessDisplay.innerHTML = '<div style="color: #666;">🤔 Analyzing your final drawing...</div>';
-    
-    await sendDrawingData();
+
+    setResultLoading(true, 'Analyzing your final drawing...');
+
+    try {
+        const data = await recognizeDrawing();
+        renderResult(data);
+    } catch (error) {
+        console.error('Final recognition failed:', error);
+        setNotice(ui.modelGuess, 'error', `Network or API error: ${error.message || 'Unknown error'}`);
+    } finally {
+        setResultLoading(false, '');
+    }
 }
 
-// Send drawing data to backend for recognition
-async function sendDrawingData() {
-    if (drawingData.length === 0) {
-        modelGuessDisplay.innerHTML = `
-            <div style="color: #ff4444;">
-                <strong>❌ No drawing detected!</strong><br>
-                <small>You need to draw something for me to recognize!</small>
-            </div>
-        `;
-        return;
+/**
+ * Shows or hides loading state during result evaluation
+ * Updates status message in results container
+ * @param {boolean} isLoading - True to show loading state
+ * @param {string} message - Loading message to display
+ */
+function setResultLoading(isLoading, message) {
+    ui.loadingResult.hidden = !isLoading;
+    if (isLoading) {
+        ui.modelGuess.innerHTML = '';
+        ui.modelGuess.appendChild(ui.loadingResult);
+        ui.loadingResult.querySelector('span:last-child').textContent = message;
     }
+}
 
-    const requestData = {
-        drawing: drawingData,
-        object: currentObject
+/**
+ * Sends drawing to backend for AI recognition
+ * Includes stroke data and target object for context
+ * @async
+ * @returns {Promise<Object>} Recognition result with prediction, confidence, top_predictions
+ * @throws {Error} If network error or API returns error
+ */
+async function recognizeDrawing() {
+    const payload = {
+        drawing: state.drawingData,
+        object: state.currentObject
     };
 
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/recognize-drawing`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestData)
+    const data = await fetchJson(`${API_BASE_URL}/api/recognize-drawing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (!data || data.error) {
+        throw new Error(data && data.error ? data.error : 'Recognition failed.');
+    }
+
+    return data;
+}
+
+/**
+ * Displays success message when object is recognized during gameplay
+ * Shows before final round evaluation
+ * Used for early match detection
+ * @param {Object} data - Recognition data with confidence
+ */
+function renderImmediateSuccess(data) {
+    const text = `Excellent. AI recognized ${getObjectDisplay(state.currentObject)}.`;
+
+    const container = document.createElement('div');
+    container.className = 'notice success';
+    container.textContent = text;
+
+    ui.modelGuess.innerHTML = '';
+    ui.modelGuess.appendChild(container);
+}
+
+/**
+ * Displays comprehensive result card with all recognition metrics
+ * Shows expected vs. guessed objects with confidence
+ * Lists top 3 predictions with confidence scores
+ * Used for final round evaluation
+ * Creates DOM elements dynamically (no innerHTML)
+ * @param {Object} data - Recognition result data
+ */
+function renderResult(data) {
+    const prediction = normalizeLabel(data.prediction);
+    const target = normalizeLabel(state.currentObject);
+    const isCorrect = prediction === target;
+    const topPredictions = data.top_predictions || {};
+
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.classList.add(isCorrect ? 'result-correct' : 'result-try');
+
+    const title = document.createElement('h3');
+    title.className = 'result-title';
+    title.textContent = isCorrect ? 'Perfect Match' : 'Good Attempt';
+
+    const badge = document.createElement('p');
+    badge.className = 'result-badge';
+    badge.textContent = isCorrect
+        ? 'The AI matched your target object.'
+        : 'The AI guessed a different object.';
+
+    const summary = document.createElement('p');
+    summary.className = 'result-summary';
+    summary.textContent = isCorrect
+        ? 'Great line quality and recognizable shape. Keep the same clarity in your next round.'
+        : 'Nice attempt. Emphasize the object outline and one defining detail for better recognition.';
+
+    const grid = document.createElement('div');
+    grid.className = 'result-grid';
+
+    const expected = document.createElement('article');
+    expected.className = 'result-block';
+    expected.innerHTML = `<strong>You drew</strong><span>${getObjectDisplay(target)}</span>`;
+
+    const guessed = document.createElement('article');
+    guessed.className = 'result-block';
+    guessed.innerHTML = `<strong>AI guessed</strong><span>${getObjectDisplay(prediction)}</span>`;
+
+    grid.appendChild(expected);
+    grid.appendChild(guessed);
+
+    card.appendChild(title);
+    card.appendChild(badge);
+    card.appendChild(summary);
+    card.appendChild(grid);
+
+    const topRows = Object.entries(topPredictions).slice(0, 3);
+    if (topRows.length > 0) {
+        const topWrapper = document.createElement('div');
+        topWrapper.className = 'result-block top-preds';
+        topWrapper.innerHTML = '<strong>Top guesses</strong>';
+
+        topRows.forEach(([label], index) => {
+            const row = document.createElement('div');
+            row.className = 'top-pred-row';
+            row.innerHTML = `<span>${getObjectDisplay(label)}</span><span>#${index + 1}</span>`;
+            topWrapper.appendChild(row);
         });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({error: 'Unknown error'}));
-            console.error('Server error:', response.status, errorData);
-            
-            let errorMessage = `Server error (${response.status})`;
-            if (errorData.error) {
-                errorMessage = errorData.error;
-            } else if (errorData.detail) {
-                errorMessage = `${errorData.detail}`;
-            }
-            
-            modelGuessDisplay.innerHTML = `
-                <div style="color: #ff4444;">
-                    <strong>Error:</strong> ${errorMessage}<br>
-                    <small>Please try drawing again or check the server logs.</small>
-                </div>
-            `;
-            return;
-        }
-
-        const data = await response.json();
-        console.log('Prediction response:', data.prediction, 'Confidence:', (data.confidence * 100).toFixed(1) + '%');
-
-        if (data.error) {
-            modelGuessDisplay.innerHTML = `
-                <div style="color: #ff4444;">
-                    <strong>Error:</strong> ${data.error}<br>
-                    <small>Please try again or check if the backend is running.</small>
-                </div>
-            `;
-            return;
-        }
-
-        // Display comprehensive results
-        displayPredictionResults(data);
-
-    } catch (error) {
-        console.error('Error sending drawing data:', error);
-        modelGuessDisplay.innerHTML = `
-            <div style="color: #ff4444;">
-                <strong>Network Error</strong><br>
-                <small>Could not connect to the AI model. ${error.message}</small>
-            </div>
-        `;
+        card.appendChild(topWrapper);
     }
+
+    ui.modelGuess.innerHTML = '';
+    ui.modelGuess.appendChild(card);
 }
 
-// Display prediction results with backend response
-function displayPredictionResults(data) {
-    const prediction = data.prediction.toLowerCase();
-    const confidence = data.confidence;
-    const topPredictions = data.top_predictions || {};
-    
-    // Get emoji from mapping
-    const predEmoji = emojiMap[prediction] || '❓';
-    const expectedEmoji = emojiMap[currentObject] || '❓';
-    
-    // Determine if correct based on exact match
-    const isCorrect = prediction === currentObject.toLowerCase();
-    const resultEmoji = isCorrect ? '🎉' : '😅';
-
-    // Create result HTML with confidence score
-    const resultHTML = `
-        <div style="text-align: center; padding: 40px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(135deg, ${isCorrect ? '#28a745, #20c997' : '#6c757d, #495057'}); border-radius: 20px; color: white;">
-            <div style="font-size: 6em; margin-bottom: 30px;">${resultEmoji}</div>
-            <h2 style="margin-bottom: 30px; font-size: 3em; font-weight: 700;">
-                ${isCorrect ? 'PERFECT!' : 'NICE TRY!'}
-            </h2>
-            
-            <div style="background: rgba(255,255,255,0.15); padding: 25px; border-radius: 15px; margin: 25px 0;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px;">
-                    <div style="text-align: center;">
-                        <div style="font-weight: bold; margin-bottom: 10px; font-size: 1.1em;">🎯 YOU DREW</div>
-                        <div style="font-size: 3em; margin-bottom: 10px;">${expectedEmoji}</div>
-                        <div style="font-size: 1.3em; font-weight: 600;">${currentObject.toUpperCase()}</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-weight: bold; margin-bottom: 10px; font-size: 1.1em;">🤖 AI SAW</div>
-                        <div style="font-size: 3em; margin-bottom: 10px;">${predEmoji}</div>
-                        <div style="font-size: 1.3em; font-weight: 600;">${prediction.toUpperCase()}</div>
-                        <div style="font-size: 1em; margin-top: 10px; opacity: 0.9;">Confidence: ${(confidence * 100).toFixed(1)}%</div>
-                    </div>
-                </div>
-            </div>
-
-            ${Object.keys(topPredictions).length > 0 ? `
-                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin: 20px 0;">
-                    <div style="font-size: 1.1em; margin-bottom: 15px; font-weight: bold;">Top Predictions:</div>
-                    <div style="display: grid; gap: 10px;">
-                        ${Object.entries(topPredictions).slice(0, 3).map(([cls, conf]) => `
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span>${emojiMap[cls] || '❓'} ${cls.toUpperCase()}</span>
-                                <span style="opacity: 0.8;">${(conf * 100).toFixed(1)}%</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            ` : ''}
-
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin: 20px 0;">
-                <div style="font-size: 1.3em; line-height: 1.6;">
-                    ${isCorrect 
-                        ? "🌟 Excellent drawing! The AI recognized it perfectly!" 
-                        : "🎨 Keep practicing! Try to emphasize the key features next time!"
-                    }
-                </div>
-            </div>
-        </div>
-    `;
-
-    modelGuessDisplay.innerHTML = resultHTML;
-}
-
-// Restart game
+/**
+ * Resets game state and loads new target object
+ * Called when user clicks "Play Again" or presses Enter on result screen
+ * Clears canvas and timers, transitions back to start screen
+ * @async
+ */
 async function restartGame() {
-    postGameScreen.style.display = "none";
-    startScreen.style.display = "block";
-    
-    // Reset game state
-    timeLeft = 30;
-    timeLeftDisplay.textContent = timeLeft;
-    timeLeftDisplay.style.color = '#333';
-    drawingData = [];
-    gameActive = false;
-    gameWon = false;
-    isEvaluating = false;
-    
-    // Reset prediction display
-    if (predictionTextDisplay) {
-        predictionTextDisplay.textContent = "Start drawing...";
-    }
-    
-    // Clear any pending evaluations
-    if (evaluationTimeout) {
-        clearTimeout(evaluationTimeout);
-        evaluationTimeout = null;
-    }
-    
-    // Hide confidence display
-    const confidenceDisplay = document.getElementById('confidence-display');
-    if (confidenceDisplay) {
-        confidenceDisplay.style.opacity = '0';
-    }
-    
+    clearInterval(state.timerId);
+    clearPendingEval();
+
+    state.gameActive = false;
+    state.gameWon = false;
+    state.isEvaluating = false;
+    state.lastRealtimeEvalAt = 0;
+
+    resetTimer();
+    resetPredictionLabel();
     clearCanvas();
-    
-    // Get a new object to draw
-    await getNewObject();
+    await loadNewTargetObject();
+
+    setScreen(ui.startScreen);
+    setLiveStatus('New object loaded. Press Enter or Start Round.');
 }
 
-// Add keyboard shortcuts
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'c' || e.key === 'C') {
-        if (gameScreen.style.display === 'block') {
+/**
+ * Handles keyboard shortcuts for game control
+ * 'C' key: Clear canvas during gameplay
+ * 'Enter' key: Start game or restart after result
+ * @param {KeyboardEvent} event - Keyboard event
+ */
+function handleKeyboardShortcuts(event) {
+    if (event.key === 'c' || event.key === 'C') {
+        if (ui.gameScreen.classList.contains('is-active')) {
             clearCanvas();
         }
+        return;
     }
-    if (e.key === 'Enter') {
-        if (startScreen.style.display !== 'none') {
-            startGame();
-        } else if (postGameScreen.style.display !== 'none') {
-            restartGame();
+
+    if (event.key !== 'Enter') {
+        return;
+    }
+
+    if (ui.startScreen.classList.contains('is-active')) {
+        startGame();
+    } else if (ui.postGameScreen.classList.contains('is-active')) {
+        restartGame();
+    }
+}
+
+/**
+ * Displays error or success notice in container
+ * Creates colored banner with message
+ * Clears previous content
+ * @param {HTMLElement} container - Element to insert notice into
+ * @param {string} type - 'error' or 'success' class
+ * @param {string} message - Message text to display
+ */
+function setNotice(container, type, message) {
+    const notice = document.createElement('div');
+    notice.className = `notice ${type}`;
+    notice.textContent = message;
+
+    container.innerHTML = '';
+    container.appendChild(notice);
+}
+
+/**
+ * Normalizes label to lowercase, trimmed string
+ * Ensures consistent comparison across different inputs
+ * @param {string} label - Raw label string
+ * @returns {string} Normalized label
+ */
+function normalizeLabel(label) {
+    return String(label || '').trim().toLowerCase();
+}
+
+/**
+ * Converts label to title case (Capitalized Words)
+ * Normalizes first, handles multi-word labels
+ * @param {string} label - Raw label string
+ * @returns {string} Title case label
+ */
+function toTitleCase(label) {
+    return normalizeLabel(label)
+        .split(' ')
+        .filter(Boolean)
+        .map((segment) => segment[0].toUpperCase() + segment.slice(1))
+        .join(' ');
+}
+
+/**
+ * Formats object label with emoji for display
+ * Combines emoji from FALLBACK_EMOJIS with title-cased label
+ * Falls back to question mark emoji if unknown
+ * @param {string} label - Object label
+ * @returns {string} Formatted display with emoji and label
+ */
+function getObjectDisplay(label) {
+    const normalized = normalizeLabel(label);
+    const emoji = FALLBACK_EMOJIS[normalized] || '❓';
+    return `${emoji} ${toTitleCase(normalized)}`;
+}
+
+/**
+ * Utility function for JSON fetch with error handling
+ * Parses error responses and throws descriptive errors
+ * Used for all API communication
+ * @async
+ * @param {string} url - Endpoint URL
+ * @param {Object} [options] - Fetch options (method, headers, body, etc.)
+ * @returns {Promise<Object>} Parsed JSON response
+ * @throws {Error} Descriptive error with HTTP status and API error message
+ */
+async function fetchJson(url, options = undefined) {
+    const response = await fetch(url, options);
+
+    if (!response.ok) {
+        let detail = '';
+
+        try {
+            const errorData = await response.json();
+            detail = errorData.error || errorData.detail || '';
+        } catch (parseError) {
+            detail = '';
         }
-    }
-});
 
-// Prevent scrolling when drawing on mobile
-document.body.addEventListener('touchstart', function(e) {
-    if (e.target === canvas) {
-        e.preventDefault();
+        throw new Error(`${response.status}${detail ? `: ${detail}` : ''}`);
     }
-}, { passive: false });
 
-document.body.addEventListener('touchend', function(e) {
-    if (e.target === canvas) {
-        e.preventDefault();
-    }
-}, { passive: false });
+    return response.json();
+}
 
-document.body.addEventListener('touchmove', function(e) {
-    if (e.target === canvas) {
-        e.preventDefault();
-    }
-}, { passive: false });
+/**
+ * Application entry point
+ * Triggered when DOM is fully loaded
+ * Initiates game bootstrap sequence
+ */
+document.addEventListener('DOMContentLoaded', bootstrap);
