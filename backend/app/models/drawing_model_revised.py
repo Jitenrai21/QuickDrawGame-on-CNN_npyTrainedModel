@@ -3,67 +3,24 @@ import numpy as np
 import os
 from PIL import Image, ImageDraw, ImageFilter
 from scipy.ndimage import gaussian_filter
-from tensorflow.keras.layers import Layer
 import io
 import base64
 import cv2
-
-
-@tf.keras.utils.register_keras_serializable()
-class TemperatureScaling(Layer):
-    """
-    Learnable temperature scaling layer for confidence calibration.
-    
-    This custom layer applies temperature scaling to model logits during inference,
-    allowing the model to calibrate its confidence scores. The temperature is learned
-    during training to automatically adjust prediction confidence.
-    
-    Why custom_objects is needed:
-    When a Keras model is saved with custom layers, Keras needs to know how to
-    deserialize (load) those custom objects. Without passing custom_objects to
-    load_model(), Keras cannot find the TemperatureScaling class definition and
-    will throw a deserialization error. The @register_keras_serializable() decorator
-    helps Keras track the class, and passing it in custom_objects dict ensures it's
-    available during model loading.
-    """
-    def __init__(self, **kwargs):
-        super(TemperatureScaling, self).__init__(**kwargs)
-        
-    def build(self, input_shape):
-        # Learnable temperature parameter (initialized to 1.0)
-        self.temperature = self.add_weight(
-            name='temperature',
-            shape=(),
-            initializer='ones',
-            trainable=True,
-            constraint=tf.keras.constraints.NonNeg()  # Ensure positive
-        )
-        super(TemperatureScaling, self).build(input_shape)
-    
-    def call(self, inputs):
-        # Apply temperature scaling: logits / temperature
-        # Higher temperature → softer probabilities → lower confidence
-        # Lower temperature → sharper probabilities → higher confidence
-        return inputs / (self.temperature + 1e-8)  # Add small epsilon to avoid division by zero
-
+import random
 
 # Navigate from backend/app/models/ to project root, then to models/
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-MODEL_PATH = os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_CALIBRATED_64x64_.keras')
+MODEL_PATH = os.path.join(PROJECT_ROOT, 'model_training', 'model_revised', 'QuickDraw_revised.keras')
 
-# Load the improved 64x64 QuickDraw model for HYBRID approach
-# IMPORTANT: Pass custom_objects dict to load_model() to deserialize custom layers
+# Load the 32-class QuickDraw model from revised training
 try:
-    model = tf.keras.models.load_model(
-        MODEL_PATH, 
-        custom_objects={'TemperatureScaling': TemperatureScaling}
-    )
-    print(f"Successfully loaded calibrated model with TemperatureScaling layer")
+    model = tf.keras.models.load_model(MODEL_PATH)
 except Exception as e:
-    print(f"Error loading 64x64 HYBRID model: {e}")
+    print(f"Error loading model: {e}")
     # Fallback to previous models (64x64 compatible)
     fallback_paths = [
-        os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_tradDataset.keras'),
+        os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_improved_final.keras'),
+        os.path.join(PROJECT_ROOT, 'model_training', 'model_trad', 'QuickDraw_tradDataset.keras')
     ]
     
     model = None
@@ -78,27 +35,29 @@ except Exception as e:
     if model is None:
         print(f"Could not load any model. Please ensure model files exist.")
 
-# Class labels for QuickDraw model (15 classes) - Updated to match notebook training
+# Class labels for QuickDraw model (32 classes) - Updated to match revised training
 CLASS_LABELS = [
-    'apple', 'bowtie', 'candle', 'door', 'envelope', 'fish', 'guitar', 'ice cream', 'lightning', 'moon',
-    'mountain', 'star', 'tent', 'toothbrush', 'wristwatch'
+    'airplane', 'apple', 'banana', 'bicycle', 'bowtie', 'bus', 'candle', 'car', 'cat', 'computer',
+    'dog', 'door', 'elephant', 'envelope', 'fish', 'flower', 'guitar', 'horse', 'house', 'ice cream',
+    'lightning', 'moon', 'mountain', 'rabbit', 'smiley face', 'star', 'sun', 'tent', 'toothbrush',
+    'tree', 'truck', 'wristwatch'
 ]
 
 def preprocess_drawing_to_image(drawing_data, canvas_size=(400, 400), target_size=(64, 64)):
     """
-    Convert drawing coordinates to a 64x64 grayscale image using HYBRID APPROACH
-    Combines web coordinate conversion + OpenCV preprocessing
+    Convert drawing coordinates to a 64x64 grayscale image for the revised model
+    Combines web coordinate conversion + OpenCV preprocessing from QuickDrawApp.py
     
-    HYBRID PIPELINE:
+    PREPROCESSING PIPELINE:
     1. Convert coordinates to canvas image (PIL)
     2. Apply OpenCV preprocessing (medianBlur + GaussianBlur + OTSU threshold)
     3. Find contours and extract tight bounding box
-    4. Crop to content + scale to 64x64 (NO DOWNSAMPLING LOSS!)
+    4. Crop to content + scale to 64x64
     
     Args:
         drawing_data: List of coordinate points [{x: int, y: int}]
         canvas_size: Original canvas size (width, height) - square (400, 400)
-        target_size: Target image size for model (64, 64) - HYBRID SIZE
+        target_size: Target image size for model (64, 64) - Standard size for revised model
     
     Returns:
         np.array: Preprocessed 64x64 image ready for model prediction
@@ -145,7 +104,7 @@ def preprocess_drawing_to_image(drawing_data, canvas_size=(400, 400), target_siz
         if current_stroke:
             strokes.append(current_stroke)
         
-        # HYBRID: Optimized stroke width for 64x64 (balance between detail and processing)
+        # Optimized stroke width for 64x64 (balance between detail and processing)
         line_width = max(6, min(10, int(min(canvas_size) / 50)))  # Optimized for 64x64
         
         for stroke in strokes:
@@ -164,22 +123,22 @@ def preprocess_drawing_to_image(drawing_data, canvas_size=(400, 400), target_siz
         # Convert PIL to numpy for OpenCV processing
         canvas_array = np.array(img, dtype=np.uint8)
         
-        # print(f" HYBRID APPROACH - Step 1: Canvas created ({canvas_array.shape}) with optimized strokes")
+        # print(f"Preprocessing - Step 1: Canvas created ({canvas_array.shape}) with optimized strokes")
         
         # STEP 2: Apply OpenCV preprocessing (adapted from QuickDrawApp.py)
         
-        # Apply median blur to remove noise 
+        # Apply median blur to remove noise (from QuickDrawApp.py line 86)
         blurred = cv2.medianBlur(canvas_array, 15)
         
-        # Apply Gaussian blur for additional smoothing 
+        # Apply Gaussian blur for additional smoothing (from QuickDrawApp.py line 87)
         blurred = cv2.GaussianBlur(blurred, (5, 5), 0)
         
-        # Apply OTSU thresholding for automatic threshold selection
+        # Apply OTSU thresholding for automatic threshold selection (from QuickDrawApp.py line 88)
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
-        # print(f"HYBRID APPROACH - Step 2: OpenCV preprocessing applied (medianBlur + GaussianBlur + OTSU)")
+        # print(f"Preprocessing - Step 2: OpenCV preprocessing applied (medianBlur + GaussianBlur + OTSU)")
         
-        # STEP 3: Find contours and extract tight bounding box
+        # STEP 3: Find contours and extract tight bounding box (from QuickDrawApp.py lines 89-93)
         contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
         
         if len(contours) >= 1:
@@ -187,52 +146,52 @@ def preprocess_drawing_to_image(drawing_data, canvas_size=(400, 400), target_siz
             cnt = max(contours, key=cv2.contourArea)
             contour_area = cv2.contourArea(cnt)
             
-            # print(f"HYBRID APPROACH - Step 3: Largest contour area = {contour_area}")
+            print(f"Preprocessing - Step 3: Largest contour area = {contour_area}")
             
-            # Only proceed if contour is significant
+            # Only proceed if contour is significant (adapted threshold from QuickDrawApp.py)
             if contour_area > 1000:  # Threshold adapted for web drawings
-                # Get tight bounding rectangle
+                # Get tight bounding rectangle (from QuickDrawApp.py line 93)
                 x, y, w, h = cv2.boundingRect(cnt)
                 
-                # Extract the digit/drawing region
+                # Extract the digit/drawing region (from QuickDrawApp.py line 94)
                 digit = thresh[y:y + h, x:x + w]
                 
-                # print(f"HYBRID APPROACH - Step 3: Bounding box = ({x}, {y}, {w}, {h})")
-                # print(f"HYBRID APPROACH - Step 3: Cropped to content ({digit.shape})")
+                print(f"Preprocessing - Step 3: Bounding box = ({x}, {y}, {w}, {h})")
+                print(f"Preprocessing - Step 3: Cropped to content ({digit.shape})")
                 
-                # STEP 4: Scale cropped content to 64x64 (HYBRID IMPROVEMENT!)
+                # STEP 4: Scale cropped content to 28x28
                 digit_resized = cv2.resize(digit, target_size, interpolation=cv2.INTER_LANCZOS4)
                 
-                # print(f"HYBRID APPROACH - Step 4: Scaled to {target_size} (4x better than 28x28!)")
+                print(f"Preprocessing - Step 4: Scaled to {target_size}")
                 
             else:
-                # print(f"HYBRID APPROACH - Warning: Small contour area ({contour_area}), using full canvas")
+                print(f"Preprocessing - Warning: Small contour area ({contour_area}), using full canvas")
                 # Fallback: use full canvas if no significant contours
                 digit_resized = cv2.resize(thresh, target_size, interpolation=cv2.INTER_LANCZOS4)
                 
         else:
-            # print(f"HYBRID APPROACH - Warning: No contours found, using full canvas")
+            print(f"Preprocessing - Warning: No contours found, using full canvas")
             # Fallback: use full canvas if no contours
             digit_resized = cv2.resize(thresh, target_size, interpolation=cv2.INTER_LANCZOS4)
         
         # Convert to numpy array and normalize for model input
         img_array = np.array(digit_resized, dtype=np.float32)
         
-        # Normalize pixel values to [0, 1] (model expects this for 64x64)
+        # Normalize pixel values to [0, 1] (model expects this for 28x28)
         img_array = img_array / 255.0
         
-        # Reshape for model input: (1, 64, 64, 1)
+        # Reshape for model input: (1, 28, 28, 1)
         img_array = img_array.reshape(1, target_size[0], target_size[1], 1)
+
         
-        # print(f"HYBRID APPROACH - COMPLETE:")
+        # print(f"Preprocessing - COMPLETE:")
         # print(f"   OpenCV preprocessing: medianBlur + GaussianBlur + OTSU threshold")
         # print(f"   Intelligent cropping: contour detection + bounding box")
-        # print(f"   64x64 scaling: 4x better resolution than 28x28")
+        # print(f"   28x28 scaling: Standard size for revised model")
         # print(f"   Content-focused: cropped to actual drawing area")
-        # print(f"   Optimized stroke width: {line_width}px for 64x64")
-        # print(f"   Normalized [0-1] values: proper for 64x64 model")
+        # print(f"   Optimized stroke width: {line_width}px for 28x28")
+        # print(f"   Normalized [0-1] values: proper for revised model")
         # print(f"   Final shape: {img_array.shape}")
-        # print(f"   Expected improvement: 40-60% better accuracy!")
         
         return img_array
         
@@ -242,10 +201,13 @@ def preprocess_drawing_to_image(drawing_data, canvas_size=(400, 400), target_siz
 
 def predict_drawing(drawing_data):
     """
-    Predict the drawing from 15 QuickDraw classes using 64x64 model
-    Classes: apple, bowtie, candle, door, envelope, fish, guitar, ice cream, lightning, moon, mountain, star, tent, toothbrush, wristwatch
+    Predict the drawing from 32 QuickDraw classes using revised model
+    Classes: airplane, apple, banana, bicycle, bowtie, bus, candle, car, cat, computer,
+    dog, door, elephant, envelope, fish, flower, guitar, horse, house, ice cream,
+    lightning, moon, mountain, rabbit, smiley face, star, sun, tent, toothbrush,
+    tree, truck, wristwatch
     
-    HYBRID APPROACH: 64x64 input with OpenCV preprocessing + normalized [0-1] values
+    28x28 input with OpenCV preprocessing + normalized [0-1] values
     
     Args:
         drawing_data: List of coordinates [{x: int, y: int}]
@@ -257,16 +219,16 @@ def predict_drawing(drawing_data):
         return {"error": "Model not loaded", "prediction": "unknown", "confidence": 0.0}
     
     try:
-        # Convert drawing coordinates to 64x64 image with hybrid preprocessing
+        # Convert drawing coordinates to 28x28 image with preprocessing
         processed_image = preprocess_drawing_to_image(drawing_data)
         
         if processed_image is None:
             return {"error": "Failed to process drawing", "prediction": "unknown", "confidence": 0.0}
         
         # Log image shape for debugging
-        # print(f"Processed image shape: {processed_image.shape}")
+        print(f"Processed image shape: {processed_image.shape}")
         
-        # CRITICAL: Check model input shape and ensure compatibility
+        # Check model input shape and ensure compatibility
         expected_shape = model.input_shape[1:3]  # (height, width)
         actual_shape = processed_image.shape[1:3]  # (height, width)
         
@@ -278,11 +240,11 @@ def predict_drawing(drawing_data):
             # Convert back to PIL for resizing (keeping normalized values)
             img_pil = Image.fromarray((processed_image[0, :, :, 0] * 255).astype(np.uint8))
             img_resized = img_pil.resize(expected_shape[::-1], Image.Resampling.LANCZOS)  # PIL uses (width, height)
-            processed_image = np.array(img_resized, dtype=np.float32) / 255.0  # Normalize for 64x64 model
+            processed_image = np.array(img_resized, dtype=np.float32) / 255.0  # Normalize for revised model
             processed_image = processed_image.reshape(1, expected_shape[0], expected_shape[1], 1)
             print(f"Resized to {processed_image.shape} for model compatibility (normalized values)")
         else:
-            print(f"Perfect shape match! Using 64x64 directly with HYBRID preprocessing!")
+            print(f"Perfect shape match! Using 64x64 directly with preprocessing!")
         
         # Make prediction
         prediction_probs = model.predict(processed_image, verbose=0)
@@ -308,32 +270,28 @@ def predict_drawing(drawing_data):
             "confidence": confidence,
             "top_predictions": top_predictions,
             "all_probabilities": {CLASS_LABELS[i]: float(prediction_probs[0][i]) for i in range(len(CLASS_LABELS))},
-            "model_info": "64x64 HYBRID model with OpenCV preprocessing",
+            "model_info": "32-class revised model with OpenCV preprocessing",
             "resolution": "64x64",
-            "preprocessing_approach": "HYBRID: Web coordinates + OpenCV (medianBlur + GaussianBlur + OTSU + contour crop)",
-            "downsampling_eliminated": True,
-            "confidence_calibrated": True,
-            "temperature_scaling": True,
-            "expected_confidence_boost": "40-60% (hybrid approach + calibration)",
-            "color_fix_applied": True,
+            "num_classes": 32,
+            "preprocessing_approach": "Web coordinates + OpenCV (medianBlur + GaussianBlur + OTSU + contour crop)",
             "opencv_preprocessing": True,
             "content_cropping": True,
             "normalized_values": True,
-            "model_version": "64x64_calibrated_hybrid"
+            "model_version": "revised_32class"
         }
         
     except Exception as e:
         print(f"Error in prediction: {e}")
         return {"error": str(e), "prediction": "unknown", "confidence": 0.0}
 
-
 def get_random_object():
     """
-    Get a random object for the user to draw from 15 QuickDraw classes
-    Classes: apple, bowtie, candle, door, envelope, fish, guitar, ice cream, lightning, moon,
-    mountain, star, tent, toothbrush, wristwatch
+    Get a random object for the user to draw from 32 QuickDraw classes
+    Classes: airplane, apple, banana, bicycle, bowtie, bus, candle, car, cat, computer,
+    dog, door, elephant, envelope, fish, flower, guitar, horse, house, ice cream,
+    lightning, moon, mountain, rabbit, smiley face, star, sun, tent, toothbrush,
+    tree, truck, wristwatch
     """
-    import random
     return random.choice(CLASS_LABELS)
 
 def get_model_info():
@@ -349,20 +307,22 @@ def get_model_info():
             "input_shape": list(model.input_shape[1:]),
             "output_classes": len(CLASS_LABELS),
             "classes": CLASS_LABELS,
-            "total_parameters": model.count_params(),
-            "has_temperature_scaling": True,
-            "confidence_calibration": "Enabled"
+            "total_parameters": model.count_params()
         }
     except Exception as e:
         return {"error": str(e)}
 
 def get_class_emoji(class_name):
     """
-    Get emoji for a class name - Updated for new 15 class list
+    Get emoji for a class name - Updated for new 32 class list
     """
     emoji_map = {
-        'apple': '🍎', 'bowtie': '🎀', 'candle': '🕯️', 'door': '🚪', 'envelope': '✉️',
-        'fish': '🐟', 'guitar': '🎸', 'ice cream': '🍦', 'lightning': '⚡', 'moon': '🌙',
-        'mountain': '⛰️', 'star': '⭐', 'tent': '⛺', 'toothbrush': '🪥', 'wristwatch': '⌚'
+        'airplane': '✈️', 'apple': '🍎', 'banana': '🍌', 'bicycle': '🚲', 'bowtie': '🎀',
+        'bus': '🚌', 'candle': '🕯️', 'car': '🚗', 'cat': '🐱', 'computer': '💻',
+        'dog': '🐶', 'door': '🚪', 'elephant': '🐘', 'envelope': '✉️', 'fish': '🐟',
+        'flower': '🌸', 'guitar': '🎸', 'horse': '🐴', 'house': '🏠', 'ice cream': '🍦',
+        'lightning': '⚡', 'moon': '🌙', 'mountain': '⛰️', 'rabbit': '🐰', 'smiley face': '😊',
+        'star': '⭐', 'sun': '☀️', 'tent': '⛺', 'toothbrush': '🪥', 'tree': '🌳',
+        'truck': '🚚', 'wristwatch': '⌚'
     }
     return emoji_map.get(class_name, '❓')

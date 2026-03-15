@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from app.models.drawing_model import predict_drawing, get_random_object, get_model_info, get_class_emoji
+from app.models.drawing_model_revised import predict_drawing, get_random_object, get_model_info, get_class_emoji
 from pydantic import BaseModel
 from typing import List, Dict
 
@@ -19,29 +19,29 @@ router = APIRouter()
 @router.post("/api/recognize-drawing/")
 async def recognize_drawing(data: DrawingData):
     """
-    Recognize drawing from 15 QuickDraw classes
+    Recognize drawing from 32 QuickDraw classes
     """
     try:
         drawing = data.drawing
         object_to_draw = data.object
         
-        print(f"🔍 Received drawing request:")
-        print(f"   Object: {object_to_draw}")
-        print(f"   Drawing points: {len(drawing)}")
-        print(f"   Sample points: {drawing[:3] if len(drawing) >= 3 else drawing}")
+        # print(f" Received drawing request:")
+        # print(f"   Object: {object_to_draw}")
+        # print(f"   Drawing points: {len(drawing)}")
+        # print(f"   Sample points: {drawing[:3] if len(drawing) >= 3 else drawing}")
         
         if not drawing:
-            print("❌ No drawing data provided")
+            print(" No drawing data provided")
             return JSONResponse(status_code=400, content={"error": "No drawing data provided"})
         
         # Get the prediction from the model
         prediction_result = predict_drawing(drawing)
         
-        print(f"🤖 Prediction result: {prediction_result}")
+        # print(f" Prediction result: {prediction_result}")
         
         # Check if there was an error in prediction
         if "error" in prediction_result:
-            print(f"❌ Prediction error: {prediction_result['error']}")
+            print(f" Prediction error: {prediction_result['error']}")
             return JSONResponse(
                 status_code=500, 
                 content={
@@ -55,7 +55,7 @@ async def recognize_drawing(data: DrawingData):
         predicted_object = prediction_result["prediction"]
         is_correct = predicted_object.lower() == object_to_draw.lower()
         
-        print(f"✅ Returning successful prediction: {predicted_object}")
+        # print(f" Returning successful prediction: {predicted_object}")
         
         # Return comprehensive prediction results
         return {
@@ -70,7 +70,7 @@ async def recognize_drawing(data: DrawingData):
         }
         
     except Exception as e:
-        print(f"❌ Server error in recognize_drawing: {str(e)}")
+        print(f" Server error in recognize_drawing: {str(e)}")
         import traceback
         traceback.print_exc()
         return JSONResponse(
@@ -86,7 +86,7 @@ async def recognize_drawing(data: DrawingData):
 @router.get("/api/random-object/")
 async def get_random_drawing_object():
     """
-    Get a random object for the user to draw from 21 QuickDraw classes
+    Get a random object for the user to draw from 32 QuickDraw classes
     """
     try:
         random_object = get_random_object()
@@ -126,6 +126,6 @@ async def health_check():
     """
     return {
         "status": "healthy",
-        "message": "QuickDraw 15-Class API is running!",
-        "version": "2.0.0"
+        "message": "QuickDraw 32-Class API is running!",
+        "version": "3.0.0"
     }
