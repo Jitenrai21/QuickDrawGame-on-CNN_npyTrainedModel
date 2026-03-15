@@ -123,6 +123,8 @@ const ui = {
     modelGuess: document.getElementById('model-guess'),
     liveStatus: document.getElementById('live-status'),
     loadingResult: document.getElementById('loading-result'),
+    canvasStage: document.getElementById('canvas-stage'),
+    canvasCursor: document.getElementById('canvas-cursor'),
     canvas: document.getElementById('drawing-canvas')
 };
 
@@ -136,8 +138,24 @@ const ctx = ui.canvas.getContext('2d', { willReadFrequently: true });
  */
 function bootstrap() {
     configureCanvas();
+    initializeCanvasCursorLayer();
     bindUiEvents();
     initializeGame();
+}
+
+/**
+ * Enables a high-contrast custom cursor for pointer devices.
+ * This keeps the drawing pointer visible even if the OS/browser cursor disappears.
+ */
+function initializeCanvasCursorLayer() {
+    if (!ui.canvasStage || !ui.canvasCursor) {
+        return;
+    }
+
+    const hasFinePointer = window.matchMedia('(pointer: fine)').matches;
+    if (hasFinePointer) {
+        ui.canvasStage.classList.add('cursor-tracking');
+    }
 }
 
 /**
@@ -168,11 +186,13 @@ function bindUiEvents() {
     ui.restartButton.addEventListener('click', restartGame);
     ui.clearButton.addEventListener('click', clearCanvas);
 
+    ui.canvas.addEventListener('pointerenter', onCanvasPointerEnter);
     ui.canvas.addEventListener('pointerdown', onPointerDown);
     ui.canvas.addEventListener('pointermove', onPointerMove);
     ui.canvas.addEventListener('pointerup', onPointerUp);
-    ui.canvas.addEventListener('pointerleave', onPointerUp);
+    ui.canvas.addEventListener('pointerleave', onCanvasPointerLeave);
     ui.canvas.addEventListener('pointercancel', onPointerUp);
+    ui.canvas.addEventListener('lostpointercapture', onCanvasPointerLeave);
 
     document.addEventListener('keydown', handleKeyboardShortcuts);
 }
@@ -237,6 +257,10 @@ function setScreen(activeScreen) {
     // Hide header during game and post-game screens, show on start screen
     const shouldHideHeader = activeScreen !== ui.startScreen;
     ui.siteHeader.classList.toggle('hidden-for-game', shouldHideHeader);
+
+    if (activeScreen !== ui.gameScreen) {
+        hideCanvasCursor();
+    }
 }
 
 /**
@@ -374,6 +398,10 @@ function onPointerDown(event) {
         return;
     }
 
+    updateCanvasCursor(event);
+    if (ui.canvasCursor) {
+        ui.canvasCursor.classList.add('is-drawing');
+    }
     ui.canvas.setPointerCapture(event.pointerId);
     state.drawing = true;
 
@@ -390,6 +418,8 @@ function onPointerDown(event) {
  * @param {PointerEvent} event - Pointer move event
  */
 function onPointerMove(event) {
+    updateCanvasCursor(event);
+
     if (!state.gameActive || !state.drawing) {
         return;
     }
@@ -414,6 +444,10 @@ function onPointerMove(event) {
  * @param {PointerEvent} event - Pointer up or leave event
  */
 function onPointerUp(event) {
+    if (ui.canvasCursor) {
+        ui.canvasCursor.classList.remove('is-drawing');
+    }
+
     if (!state.drawing) {
         return;
     }
@@ -442,6 +476,52 @@ function onPointerUp(event) {
     if (ui.canvas.hasPointerCapture(event.pointerId)) {
         ui.canvas.releasePointerCapture(event.pointerId);
     }
+}
+
+/**
+ * Shows the custom cursor when entering the drawing canvas.
+ * @param {PointerEvent} event - Pointer event
+ */
+function onCanvasPointerEnter(event) {
+    updateCanvasCursor(event);
+}
+
+/**
+ * Hides the custom cursor when the pointer leaves the drawing surface.
+ */
+function onCanvasPointerLeave() {
+    hideCanvasCursor();
+    if (ui.canvasCursor) {
+        ui.canvasCursor.classList.remove('is-drawing');
+    }
+}
+
+/**
+ * Positions and displays the custom cursor inside the canvas bounds.
+ * @param {PointerEvent} event - Pointer event with viewport coordinates
+ */
+function updateCanvasCursor(event) {
+    if (!ui.canvasCursor || !ui.canvasStage || event.pointerType === 'touch') {
+        return;
+    }
+
+    const rect = ui.canvas.getBoundingClientRect();
+    const clampedX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const clampedY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+
+    ui.canvasCursor.style.left = `${clampedX}px`;
+    ui.canvasCursor.style.top = `${clampedY}px`;
+    ui.canvasCursor.classList.add('is-visible');
+}
+
+/**
+ * Clears visibility classes for the custom canvas cursor.
+ */
+function hideCanvasCursor() {
+    if (!ui.canvasCursor) {
+        return;
+    }
+    ui.canvasCursor.classList.remove('is-visible', 'is-drawing');
 }
 
 /**
@@ -479,6 +559,12 @@ function clearCanvas() {
     }
 
     clearPendingEval();
+
+    if (!state.drawing) {
+        if (ui.canvasCursor) {
+            ui.canvasCursor.classList.remove('is-drawing');
+        }
+    }
 }
 
 /**
@@ -513,8 +599,8 @@ async function evaluateDrawingRealtime() {
             state.gameWon = true;
             state.gameActive = false;
             clearInterval(state.timerId);
-            renderImmediateSuccess(data);
             setScreen(ui.postGameScreen);
+            renderResult(data);
             setLiveStatus('Great job. The AI recognized your drawing early.');
         }
     } catch (error) {
@@ -544,6 +630,7 @@ function updatePredictionDisplay(prediction) {
  */
 async function endGame() {
     setScreen(ui.postGameScreen);
+    ui.postGameScreen.classList.remove('result-mode-correct', 'result-mode-try');
 
     if (state.drawingData.length === 0) {
         setNotice(ui.modelGuess, 'error', 'No drawing detected. Try another round and sketch at least one line.');
@@ -605,23 +692,6 @@ async function recognizeDrawing() {
 }
 
 /**
- * Displays success message when object is recognized during gameplay
- * Shows before final round evaluation
- * Used for early match detection
- * @param {Object} data - Recognition data with confidence
- */
-function renderImmediateSuccess(data) {
-    const text = `Excellent. AI recognized ${getObjectDisplay(state.currentObject)}.`;
-
-    const container = document.createElement('div');
-    container.className = 'notice success';
-    container.textContent = text;
-
-    ui.modelGuess.innerHTML = '';
-    ui.modelGuess.appendChild(container);
-}
-
-/**
  * Displays comprehensive result card with all recognition metrics
  * Shows expected vs. guessed objects with confidence
  * Lists top 3 predictions with confidence scores
@@ -633,15 +703,57 @@ function renderResult(data) {
     const prediction = normalizeLabel(data.prediction);
     const target = normalizeLabel(state.currentObject);
     const isCorrect = prediction === target;
-    const topPredictions = data.top_predictions || {};
+    const strokesDrawn = countStrokeCount(state.drawingData);
+
+    ui.postGameScreen.classList.toggle('result-mode-correct', isCorrect);
+    ui.postGameScreen.classList.toggle('result-mode-try', !isCorrect);
 
     const card = document.createElement('div');
     card.className = 'result-card';
     card.classList.add(isCorrect ? 'result-correct' : 'result-try');
 
+    const ribbon = document.createElement('p');
+    ribbon.className = 'result-ribbon';
+    ribbon.textContent = isCorrect ? 'Victory Unlocked' : 'Keep Sketching';
+
     const title = document.createElement('h3');
     title.className = 'result-title';
-    title.textContent = isCorrect ? 'Perfect Match' : 'Good Attempt';
+    
+    // Dynamic compliments for more engagement
+    const compliments = ['Perfect Match', 'Awesome Sketch', 'You Nailed It', 'Incredible!', 'Artistic Genius'];
+    const randomCompliment = compliments[Math.floor(Math.random() * compliments.length)];
+    
+    title.textContent = isCorrect ? randomCompliment : 'Good Attempt';
+
+    const hero = document.createElement('div');
+    hero.className = 'result-hero';
+
+    const heroIcon = document.createElement('div');
+    heroIcon.className = 'result-icon';
+    heroIcon.textContent = isCorrect ? '🏆' : '🧠';
+
+    const heroTagline = document.createElement('p');
+    heroTagline.className = 'result-tagline';
+    heroTagline.textContent = isCorrect
+        ? 'Brilliant sketch. The model recognized it with confidence.'
+        : 'Solid effort. One extra defining detail can boost recognition.';
+
+    const heroQuote = document.createElement('p');
+    heroQuote.className = 'result-quote';
+    heroQuote.textContent = isCorrect
+        ? '"Fast, clean lines. That was gallery-ready."'
+        : '"Strong attempt. You are one detail away from a perfect match."';
+
+    hero.appendChild(heroIcon);
+    hero.appendChild(title);
+    hero.appendChild(heroTagline);
+    hero.appendChild(heroQuote);
+
+    const stats = document.createElement('div');
+    stats.className = 'result-stats';
+    stats.appendChild(createResultStat('Time Left', `${Math.max(state.timeLeft, 0)}s`));
+    stats.appendChild(createResultStat('Strokes', `${strokesDrawn}`));
+    stats.appendChild(createResultStat('Pace', state.timeLeft >= 10 ? 'Steady' : 'Clutch'));
 
     const badge = document.createElement('p');
     badge.className = 'result-badge';
@@ -654,6 +766,10 @@ function renderResult(data) {
     summary.textContent = isCorrect
         ? 'Great line quality and recognizable shape. Keep the same clarity in your next round.'
         : 'Nice attempt. Emphasize the object outline and one defining detail for better recognition.';
+
+    card.appendChild(ribbon);
+    card.appendChild(hero);
+    card.appendChild(stats);
 
     const grid = document.createElement('div');
     grid.className = 'result-grid';
@@ -669,29 +785,83 @@ function renderResult(data) {
     grid.appendChild(expected);
     grid.appendChild(guessed);
 
-    card.appendChild(title);
     card.appendChild(badge);
     card.appendChild(summary);
     card.appendChild(grid);
 
-    const topRows = Object.entries(topPredictions).slice(0, 3);
-    if (topRows.length > 0) {
-        const topWrapper = document.createElement('div');
-        topWrapper.className = 'result-block top-preds';
-        topWrapper.innerHTML = '<strong>Top guesses</strong>';
-
-        topRows.forEach(([label], index) => {
-            const row = document.createElement('div');
-            row.className = 'top-pred-row';
-            row.innerHTML = `<span>${getObjectDisplay(label)}</span><span>#${index + 1}</span>`;
-            topWrapper.appendChild(row);
-        });
-
-        card.appendChild(topWrapper);
-    }
-
     ui.modelGuess.innerHTML = '';
     ui.modelGuess.appendChild(card);
+
+    if (isCorrect) {
+        triggerCelebration();
+    }
+}
+
+/**
+ * Builds a compact metric tile for the post-game summary row.
+ * @param {string} label - Metric label
+ * @param {string} value - Metric value
+ * @returns {HTMLElement} Metric tile element
+ */
+function createResultStat(label, value) {
+    const stat = document.createElement('div');
+    stat.className = 'result-stat';
+
+    const statLabel = document.createElement('strong');
+    statLabel.textContent = label;
+
+    const statValue = document.createElement('span');
+    statValue.textContent = value;
+
+    stat.appendChild(statLabel);
+    stat.appendChild(statValue);
+    return stat;
+}
+
+/**
+ * Counts completed strokes from point stream.
+ * @param {Array<Object>} points - Flattened drawing points
+ * @returns {number} Number of stroke segments
+ */
+function countStrokeCount(points) {
+    if (!Array.isArray(points) || points.length === 0) {
+        return 0;
+    }
+    const separators = points.filter((point) => point && point.strokeEnd).length;
+    return Math.max(1, separators);
+}
+
+/**
+ * Celebration logic for successful AI recognition
+ * Triggers confetti animation and logs achievement
+ */
+function triggerCelebration() {
+    // 1. Confetti burst using canvas-confetti library
+    if (typeof confetti === 'function') {
+        const duration = 3 * 1000;
+        const animationEnd = Date.now() + duration;
+        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+        const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+        const interval = setInterval(function() {
+            const timeLeft = animationEnd - Date.now();
+
+            if (timeLeft <= 0) {
+                return clearInterval(interval);
+            }
+
+            const particleCount = 50 * (timeLeft / duration);
+            confetti(Object.assign({}, defaults, { 
+                particleCount, 
+                origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } 
+            }));
+            confetti(Object.assign({}, defaults, { 
+                particleCount, 
+                origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } 
+            }));
+        }, 250);
+    }
 }
 
 /**
@@ -713,6 +883,8 @@ async function restartGame() {
     resetPredictionLabel();
     clearCanvas();
     await loadNewTargetObject();
+
+    ui.postGameScreen.classList.remove('result-mode-correct', 'result-mode-try');
 
     setScreen(ui.startScreen);
     setLiveStatus('New object loaded. Press Enter or Start Round.');

@@ -5,20 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuickDraw | AI Drawing Recognition Game</title>
     <meta name="description" content="Draw quickly and help the AI recognize one of 32 objects in this interactive QuickDraw game.">
-    <meta name="theme-color" content="#f0ede6">
+    <meta name="theme-color" content="#f4f1e9">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Display:wght@500;700&family=Questrial&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/main.css?v=4.1.2">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/main.css?v=7.1.0">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 </head>
 <body>
     <div class="page-shell" role="application" aria-label="QuickDraw game interface">
         <header class="site-header" role="banner" id="site-header" data-toggle="game-hidden">
             <div class="header-content">
-                <p class="eyebrow" aria-hidden="true">Interactive Game</p>
+                <div class="brand-row">
+                    <div class="brand-mark">
+                        <span class="brand-logo-shell" aria-hidden="true">
+                            <img src="assets/logo.png" alt="QuickDraw brand logo">
+                        </span>
+                        <span>QuickDraw Studio</span>
+                    </div>
+                    <p class="eyebrow" aria-hidden="true">Interactive Game</p>
+                </div>
                 <h1>QuickDraw Challenge</h1>
                 <p class="header-copy">Draw 32 different objects in 30 seconds. The AI learns to recognize your sketches in real-time.</p>
             </div>
@@ -108,14 +117,18 @@
                     </header>
 
                     <article class="canvas-section" role="region" aria-label="Drawing area">
-                        <canvas
-                            id="drawing-canvas"
-                            width="400"
-                            height="400"
-                            role="img"
-                            aria-label="Blank canvas for drawing the target object"
-                            tabindex="0">
-                        </canvas>
+                        <div class="canvas-stage" id="canvas-stage">
+                            <canvas
+                                id="drawing-canvas"
+                                width="400"
+                                height="400"
+                                role="img"
+                                aria-label="Blank canvas for drawing the target object"
+                                tabindex="0">
+                            </canvas>
+                            <div id="canvas-cursor" class="canvas-cursor" aria-hidden="true"></div>
+                        </div>
+                        <p class="canvas-hint">Tip: the guide cursor highlights your drawing position for better precision.</p>
                         <div id="live-status" class="live-status" role="status" aria-live="polite" aria-label="Drawing feedback"></div>
                     </article>
 
@@ -152,6 +165,6 @@
         </footer>
     </div>
 
-    <script src="script.js?v=4.1.2" defer></script>
+    <script src="script.js?v=7.1.0" defer></script>
 </body>
 </html>
