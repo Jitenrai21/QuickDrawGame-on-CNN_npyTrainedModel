@@ -4,6 +4,7 @@ model_training/scripts/processed_data(Apple&Banana)_FIXED
 
 # Model files - exclude all trained models to avoid large file commits
 model_training/model_trad/
+model_training/model_revised/
 *.keras
 *.h5
 *.pkl
@@ -75,3 +76,5 @@ logs/
 *.csv
 features_onTrad
 labels_onTrad
+features_revised
+labels_revised

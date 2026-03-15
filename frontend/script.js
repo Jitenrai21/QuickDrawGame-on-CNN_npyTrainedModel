@@ -50,12 +50,27 @@ ctx.lineWidth = 5;
 const API_BASE_URL = window.location.origin.includes('localhost') ? 
     'http://localhost:8000' : window.location.origin;
 
-// Global emoji mapping for all objects
-const emojiMap = {
-    'apple': '🍎', 'bowtie': '🎀', 'candle': '🕯️', 'door': '🚪', 'envelope': '✉️',
-    'fish': '🐟', 'guitar': '🎸', 'ice cream': '🍦', 'lightning': '⚡', 'moon': '🌙',
-    'mountain': '⛰️', 'star': '⭐', 'tent': '⛺', 'toothbrush': '🪥', 'wristwatch': '⌚'
+// Global emoji mapping for all 32 objects (fetched from backend, with local fallback)
+let emojiMap = {
+    'airplane': '✈️', 'apple': '🍎', 'banana': '🍌', 'bicycle': '🚲', 'bowtie': '🎀',
+    'bus': '🚌', 'candle': '🕯️', 'car': '🚗', 'cat': '🐱', 'computer': '💻',
+    'dog': '🐶', 'door': '🚪', 'elephant': '🐘', 'envelope': '✉️', 'fish': '🐟',
+    'flower': '🌸', 'guitar': '🎸', 'horse': '🐴', 'house': '🏠', 'ice cream': '🍦',
+    'lightning': '⚡', 'moon': '🌙', 'mountain': '⛰️', 'rabbit': '🐰', 'smiley face': '😊',
+    'star': '⭐', 'sun': '☀️', 'tent': '⛺', 'toothbrush': '🪥', 'tree': '🌳',
+    'truck': '🚚', 'wristwatch': '⌚'
 };
+
+// Class list for 32-class model (local fallback if backend fails)
+const CLASS_LABELS_32 = [
+    'airplane', 'apple', 'banana', 'bicycle', 'bowtie', 'bus', 'candle', 'car', 'cat', 'computer',
+    'dog', 'door', 'elephant', 'envelope', 'fish', 'flower', 'guitar', 'horse', 'house', 'ice cream',
+    'lightning', 'moon', 'mountain', 'rabbit', 'smiley face', 'star', 'sun', 'tent', 'toothbrush',
+    'tree', 'truck', 'wristwatch'
+];
+
+// Model info cache (updated during initialization)
+let modelInfo = null;
 
 // Initialize the game
 document.addEventListener('DOMContentLoaded', function() {
@@ -64,24 +79,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function initializeGame() {
     try {
-        // Check if the model is loaded
-        const modelInfo = await fetch(`${API_BASE_URL}/api/model-info`);
-        const info = await modelInfo.json();
+        // Fetch model info from backend and cache it
+        const response = await fetch(`${API_BASE_URL}/api/model-info`);
+        if (!response.ok) {
+            throw new Error(`Backend returned ${response.status}`);
+        }
         
-        if (info.error) {
-            console.error('Model not loaded:', info.error);
-            alert('⚠️ Model not loaded. Please check the backend.');
+        modelInfo = await response.json();
+        
+        if (modelInfo.error) {
+            console.error('Model not loaded:', modelInfo.error);
+            alert('⚠️ Model not loaded. Backend error: ' + modelInfo.error);
             return;
         }
         
-        console.log('✅ Model loaded successfully:', info);
+        console.log('Model loaded successfully. Classes:', modelInfo.output_classes, 'Input shape:', modelInfo.input_shape);
         
         // Get initial random object
         await getNewObject();
         
     } catch (error) {
         console.error('Error initializing game:', error);
-        alert('❌ Failed to connect to backend. Please check if the server is running.');
+        alert('Failed to connect to backend at ' + API_BASE_URL + '. Is the server running?');
     }
 }
 
@@ -93,23 +112,20 @@ async function getNewObject() {
         
         if (data.success) {
             currentObject = data.object;
-            const emoji = data.emoji;
+            const emoji = data.emoji || emojiMap[data.object] || '❓';
             objectPlaceholder.textContent = `${emoji} ${currentObject.charAt(0).toUpperCase() + currentObject.slice(1)}`;
         } else {
-            // Fallback to local selection from 15 classes - Updated to match backend
-            const objects = [
-                'apple', 'bowtie', 'candle', 'door', 'envelope', 'fish', 'guitar', 'ice cream', 'lightning', 'moon',
-                'mountain', 'star', 'tent', 'toothbrush', 'wristwatch'
-            ];
-            currentObject = objects[Math.floor(Math.random() * objects.length)];
+            // Fallback to local selection from 32 classes
+            currentObject = CLASS_LABELS_32[Math.floor(Math.random() * CLASS_LABELS_32.length)];
             const emoji = emojiMap[currentObject] || '❓';
             objectPlaceholder.textContent = `${emoji} ${currentObject.charAt(0).toUpperCase() + currentObject.slice(1)}`;
         }
     } catch (error) {
         console.error('Error getting random object:', error);
-        // Fallback
-        currentObject = 'apple';
-        objectPlaceholder.textContent = '🍎 Apple';
+        // Fallback to local selection
+        currentObject = CLASS_LABELS_32[Math.floor(Math.random() * CLASS_LABELS_32.length)];
+        const emoji = emojiMap[currentObject] || '❓';
+        objectPlaceholder.textContent = `${emoji} ${currentObject.charAt(0).toUpperCase() + currentObject.slice(1)}`;
     }
 }
 
@@ -202,13 +218,14 @@ async function evaluateDrawingRealTime() {
         }
 
         const data = await response.json();
+        console.log('Real-time evaluation:', data.prediction, 'Confidence:', (data.confidence * 100).toFixed(1) + '%');
         
         if (data.error) {
-            console.warn("Real-time evaluation error:", data.error);
+            console.warn('Real-time evaluation error:', data.error);
             return;
         }
 
-        // NEW SUCCESS LOGIC: Check if highest confidence prediction matches current object
+        // Check if highest confidence prediction matches current object
         const highestPrediction = data.prediction.toLowerCase();
         const targetObject = currentObject.toLowerCase();
         const isCorrectPrediction = highestPrediction === targetObject;
@@ -219,11 +236,11 @@ async function evaluateDrawingRealTime() {
             const capitalizedPrediction = highestPrediction.charAt(0).toUpperCase() + highestPrediction.slice(1);
             const displayText = `${emoji} ${capitalizedPrediction}`;
             predictionTextDisplay.textContent = displayText;
-            console.log('AI prediction updated:', displayText); // Debug log
+            console.log('Real-time prediction updated:', displayText);
         }
         
         if (isCorrectPrediction) {
-            // SUCCESS! Highest confidence prediction matches target
+            // SUCCESS! Prediction matches target object
             gameWon = true;
             gameActive = false;
             const actualTime = 30 - timeLeft;
@@ -232,7 +249,7 @@ async function evaluateDrawingRealTime() {
         }
         
     } catch (error) {
-        console.warn("Real-time evaluation network error:", error);
+        console.warn('Real-time evaluation network error:', error);
     } finally {
         isEvaluating = false;
     }
@@ -421,21 +438,20 @@ async function sendDrawingData() {
             body: JSON.stringify(requestData)
         });
 
-        // Check if the response is ok
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error("Server responded with error:", response.status, errorData);
+            const errorData = await response.json().catch(() => ({error: 'Unknown error'}));
+            console.error('Server error:', response.status, errorData);
             
             let errorMessage = `Server error (${response.status})`;
-            if (errorData.detail) {
-                errorMessage += `: ${JSON.stringify(errorData.detail)}`;
-            } else if (errorData.error) {
-                errorMessage += `: ${errorData.error}`;
+            if (errorData.error) {
+                errorMessage = errorData.error;
+            } else if (errorData.detail) {
+                errorMessage = `${errorData.detail}`;
             }
             
             modelGuessDisplay.innerHTML = `
                 <div style="color: #ff4444;">
-                    <strong>❌ ${errorMessage}</strong><br>
+                    <strong>Error:</strong> ${errorMessage}<br>
                     <small>Please try drawing again or check the server logs.</small>
                 </div>
             `;
@@ -443,12 +459,12 @@ async function sendDrawingData() {
         }
 
         const data = await response.json();
-        console.log("✅ Received response:", data);
+        console.log('Prediction response:', data.prediction, 'Confidence:', (data.confidence * 100).toFixed(1) + '%');
 
         if (data.error) {
             modelGuessDisplay.innerHTML = `
                 <div style="color: #ff4444;">
-                    <strong>❌ Error:</strong> ${data.error}<br>
+                    <strong>Error:</strong> ${data.error}<br>
                     <small>Please try again or check if the backend is running.</small>
                 </div>
             `;
@@ -459,28 +475,31 @@ async function sendDrawingData() {
         displayPredictionResults(data);
 
     } catch (error) {
-        console.error("Error sending drawing data:", error);
+        console.error('Error sending drawing data:', error);
         modelGuessDisplay.innerHTML = `
             <div style="color: #ff4444;">
-                <strong>❌ Network Error</strong><br>
-                <small>Could not connect to the AI model: ${error.message}</small>
+                <strong>Network Error</strong><br>
+                <small>Could not connect to the AI model. ${error.message}</small>
             </div>
         `;
     }
 }
 
-// Display simplified prediction results
+// Display prediction results with backend response
 function displayPredictionResults(data) {
-    const prediction = data.prediction;
-    const expectedObject = data.expected_object;
-    const isCorrect = data.is_correct;
-
-    // Get emojis from global mapping
+    const prediction = data.prediction.toLowerCase();
+    const confidence = data.confidence;
+    const topPredictions = data.top_predictions || {};
+    
+    // Get emoji from mapping
     const predEmoji = emojiMap[prediction] || '❓';
-    const expectedEmoji = emojiMap[expectedObject] || '❓';
+    const expectedEmoji = emojiMap[currentObject] || '❓';
+    
+    // Determine if correct based on exact match
+    const isCorrect = prediction === currentObject.toLowerCase();
     const resultEmoji = isCorrect ? '🎉' : '😅';
 
-    // Simple and clean result HTML
+    // Create result HTML with confidence score
     const resultHTML = `
         <div style="text-align: center; padding: 40px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(135deg, ${isCorrect ? '#28a745, #20c997' : '#6c757d, #495057'}); border-radius: 20px; color: white;">
             <div style="font-size: 6em; margin-bottom: 30px;">${resultEmoji}</div>
@@ -493,15 +512,30 @@ function displayPredictionResults(data) {
                     <div style="text-align: center;">
                         <div style="font-weight: bold; margin-bottom: 10px; font-size: 1.1em;">🎯 YOU DREW</div>
                         <div style="font-size: 3em; margin-bottom: 10px;">${expectedEmoji}</div>
-                        <div style="font-size: 1.3em; font-weight: 600;">${expectedObject.toUpperCase()}</div>
+                        <div style="font-size: 1.3em; font-weight: 600;">${currentObject.toUpperCase()}</div>
                     </div>
                     <div style="text-align: center;">
                         <div style="font-weight: bold; margin-bottom: 10px; font-size: 1.1em;">🤖 AI SAW</div>
                         <div style="font-size: 3em; margin-bottom: 10px;">${predEmoji}</div>
                         <div style="font-size: 1.3em; font-weight: 600;">${prediction.toUpperCase()}</div>
+                        <div style="font-size: 1em; margin-top: 10px; opacity: 0.9;">Confidence: ${(confidence * 100).toFixed(1)}%</div>
                     </div>
                 </div>
             </div>
+
+            ${Object.keys(topPredictions).length > 0 ? `
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin: 20px 0;">
+                    <div style="font-size: 1.1em; margin-bottom: 15px; font-weight: bold;">Top Predictions:</div>
+                    <div style="display: grid; gap: 10px;">
+                        ${Object.entries(topPredictions).slice(0, 3).map(([cls, conf]) => `
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>${emojiMap[cls] || '❓'} ${cls.toUpperCase()}</span>
+                                <span style="opacity: 0.8;">${(conf * 100).toFixed(1)}%</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
 
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin: 20px 0;">
                 <div style="font-size: 1.3em; line-height: 1.6;">
