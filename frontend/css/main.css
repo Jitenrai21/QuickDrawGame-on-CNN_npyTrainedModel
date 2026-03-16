@@ -3,6 +3,22 @@
  * Bright Renovation Theme
  */
 
+ :root {
+    --bg-color      : #f0ede6;
+    --main-color    : #e2dcd2;
+    --text-color    : #2c2a27;
+    --accent-color  : #6b6057;
+    --cta-color     : #4a4643;
+    --header-bg     : rgba(240, 237, 230, 0.97);
+    --card-bg       : #d8d2c7;
+    --border-color  : #c0b9af;
+    --font-main     : 'Questrial', sans-serif;
+    --font-heading  : 'Noto Serif Display', serif;
+    --transition    : 0.3s ease;
+    --radius        : 12px;
+    --shadow-glow   : 0 2px 18px rgba(44, 42, 39, 0.14);
+}
+
 :root {
     --bg-color: #f4f1e9;
     --bg-alt: #ebe5d9;
